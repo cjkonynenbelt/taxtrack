@@ -282,6 +282,14 @@ details.more > summary, .filters summary { cursor: pointer; padding: 10px 0; fon
 ul.plain { margin: 0 0 10px; padding-left: 18px; font-size: 0.9rem; }
 ul.plain li { margin-bottom: 6px; }
 
+/* ---- deduction answers ---- */
+.answer { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; margin-bottom: 12px; border-left: 4px solid var(--warn); background: var(--warn-soft); border-radius: var(--radius); }
+.answer.likely { border-left-color: var(--accent); background: var(--accent-soft); }
+.answer.not { border-left-color: var(--danger); background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--danger); }
+.answer-title { font-size: 1.1rem; letter-spacing: 0.01em; }
+.sheet-body h3 { margin-top: 16px; }
+.quick-btn.wide { width: 100%; margin-bottom: 14px; }
+
 /* ---- lock screen ---- */
 .lock { position: fixed; inset: 0; z-index: 60; background: var(--bg); display: flex; align-items: center; justify-content: center; outline: none; }
 .lock-box { text-align: center; width: 280px; }
