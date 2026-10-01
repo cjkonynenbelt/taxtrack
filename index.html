@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en-CA">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>TaxTrack</title>
+  <meta name="description" content="Private income, mileage and expense records for self-employed work in Canada. Estimates only.">
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#f6f6f3" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#14171a" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="TaxTrack">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="app" hidden>
+    <header class="top">
+      <a class="brand" href="#/home">TaxTrack</a>
+      <select id="year" aria-label="Tax year"></select>
+    </header>
+
+    <nav class="side" aria-label="Sections">
+      <a href="#/home" data-tab="home">Dashboard</a>
+      <a href="#/income" data-tab="income">Income</a>
+      <a href="#/trips" data-tab="trips">Trips</a>
+      <a href="#/expenses" data-tab="expenses">Expenses</a>
+      <hr>
+      <a href="#/customers" data-tab="customers">Customers</a>
+      <a href="#/installations" data-tab="installations">Installations</a>
+      <a href="#/recurring" data-tab="recurring">Recurring income</a>
+      <a href="#/months" data-tab="months">Monthly payouts</a>
+      <hr>
+      <a href="#/tax" data-tab="tax">Tax estimate</a>
+      <a href="#/review" data-tab="review">Year-end review</a>
+      <a href="#/reference" data-tab="reference">Could I write this off?</a>
+      <a href="#/export" data-tab="export">Export &amp; backup</a>
+      <a href="#/settings" data-tab="settings">Settings</a>
+    </nav>
+
+    <main id="view"></main>
+
+    <nav class="bottom" aria-label="Main">
+      <a href="#/home" data-tab="home">Home</a>
+      <a href="#/income" data-tab="income">Income</a>
+      <a href="#/trips" data-tab="trips">Trips</a>
+      <a href="#/expenses" data-tab="expenses">Expenses</a>
+      <a href="#/more" data-tab="more">More</a>
+    </nav>
+  </div>
+  <noscript><p style="padding:24px">TaxTrack needs JavaScript to run.</p></noscript>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

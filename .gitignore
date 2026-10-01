@@ -1,0 +1,8 @@
+# Never commit personal financial data to the repository.
+taxtrack-backup-*.json
+taxtrack-*.csv
+taxtrack-*.pdf
+*.backup.json
+
+.DS_Store
+Thumbs.db
