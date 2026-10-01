@@ -52,6 +52,10 @@ Rates are data, not logic:
 
 The 2026 table was taken from canada.ca on 2026-10-01. Quebec is not modelled; Ontario surtax and health premium are not modelled.
 
+### Updating vehicle CCA rules
+
+`js/cca.js` holds the CCA classes and rates, the passenger-vehicle cost limit by year, the zero-emission limit and the first-year rule in `CCA_RULES`, plus the date they were last checked. Add each year's cost limit when it is announced (2026 was not confirmed on 2026-10-01, so the 2025 limit is used and flagged). The likely class comes from CRA's vehicle definitions chart; when the answers the chart needs are missing, the app says so instead of guessing.
+
 ### Updating expense guidance
 
 `js/reference.js` holds the expense categories, warnings, documentation reminders, CRA links and the "Could I write this off?" catalogue. Edit the text there; the forms, review and reference screens all read from it.
@@ -87,6 +91,8 @@ js/db.js              IndexedDB storage (the only storage code)
 js/store.js           state, saving, record linking, backup/restore
 js/calc.js            totals, vehicle %, expense portions, tax estimate
 js/tax-rates.js       yearly rate tables            <- update yearly
+js/cca.js             vehicle CCA rules, classification, forecast, deduction assessment
+js/assets.js          Vehicle assets & CCA screens
 js/reference.js       categories + expense guidance <- update when rules change
 js/forms.js           add/edit forms
 js/ui.js              form builder, dialogs, receipts
@@ -103,7 +109,7 @@ dev/serve.ps1         local preview server
 ## Not included
 
 - Receipt OCR. Reading totals from photos needs a large third-party library or an online service; receipts are attached as photos and you type the details.
-- Capital cost allowance calculations, GST/HST tracking and filing, and anything for Quebec provincial tax.
+- Capital cost allowance for equipment (vehicles are covered under Vehicle assets & CCA), recapture or terminal loss when a vehicle is sold, GST/HST tracking and filing, and anything for Quebec provincial tax.
 
 ## Disclaimer
 
