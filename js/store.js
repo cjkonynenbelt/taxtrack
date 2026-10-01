@@ -11,12 +11,12 @@
 import * as db from './db.js';
 import { uid, today, round2 } from './util.js';
 
-export const KINDS = ['income', 'expense', 'trip', 'customer', 'installation', 'recurring', 'asset'];
-const PREFIX = { income: 'INC', expense: 'EXP', trip: 'TRP', customer: 'CUS', installation: 'INS', recurring: 'REC', asset: 'AST', receipt: 'RCT' };
+export const KINDS = ['income', 'expense', 'trip', 'customer', 'installation', 'recurring', 'asset', 'equip', 'sub'];
+const PREFIX = { income: 'INC', expense: 'EXP', trip: 'TRP', customer: 'CUS', installation: 'INS', recurring: 'REC', asset: 'AST', equip: 'EQP', sub: 'SUB', receipt: 'RCT' };
 
 export const state = {
   settings: null,
-  data: { income: [], expense: [], trip: [], customer: [], installation: [], recurring: [], asset: [] },
+  data: { income: [], expense: [], trip: [], customer: [], installation: [], recurring: [], asset: [], equip: [], sub: [] },
 };
 
 const listeners = new Set();
@@ -31,6 +31,10 @@ export function defaultSettings() {
     vehicles: ['My vehicle'],
     defaultVehicle: 'My vehicle',
     homeBase: 'Home',
+    officeBase: '',
+    vehicleInfo: {},              // per vehicle: { role, years: { 2026: { odoStart, odoEnd, totalKm, bizKmOverride } } }
+    gpsEnabled: false,            // offer GPS distance on Start Trip (always off until the user turns it on)
+    activeTrip: null,             // a trip started with Start Trip and not yet stopped
     theme: 'auto',
     mealsPct: 50,                 // estimated allowable share of meals & entertainment
     includeEquipment: false,      // count equipment purchases as current-year expenses in the estimate
@@ -68,6 +72,9 @@ export async function saveSettings() {
   await db.put('kv', JSON.parse(JSON.stringify(state.settings)), 'settings');
   emit();
 }
+
+// Saves settings without re-rendering the screen (used while a trip is being tracked).
+export const saveQuiet = () => db.put('kv', JSON.parse(JSON.stringify(state.settings)), 'settings');
 
 export const all = kind => state.data[kind];
 export const byId = (kind, id) => state.data[kind].find(r => r.id === id) || null;
@@ -152,7 +159,9 @@ export async function saveInstallation(inst) {
       date: inst.date,
       from: state.settings.homeBase || 'Home',
       to: inst.address || name,
-      purpose: 'Payment-system installation',
+      purpose: 'Customer installation',
+      detail: `Installation for ${name}`,
+      vehicle: (trip && trip.vehicle) || state.settings.defaultVehicle,
       customerId: inst.customerId,
       km: Number(inst.km),
       type: 'business',

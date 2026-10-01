@@ -1,11 +1,13 @@
 // Screens: dashboard and the record lists. Each view renders into `root`.
 
-import { state, all, byId, customerName, expectedPayments, isDue, skipExpected, yearSettings, saveSettings } from './store.js';
+import { state, all, byId, customerName, expectedPayments, isDue, skipExpected } from './store.js';
 import { summary, inYear, cadOf, expenseParts, kmSummary, monthSummary, customerTotals } from './calc.js';
-import { incomeForm, tripForm, expenseForm, customerForm, installationForm, recurringForm, confirmExpected } from './forms.js';
-import { openForm, confirmDialog, toast, viewReceipt } from './ui.js';
+import { tripForm, startTripForm, stopTripForm, activeTrip } from './mileage.js';
+import { equipForm } from './equipment.js';
+import { incomeForm, expenseForm, customerForm, installationForm, recurringForm, confirmExpected } from './forms.js';
+import { confirmDialog, viewReceipt } from './ui.js';
 import { monthBars, rankBars, splitBar } from './charts.js';
-import { INCOME_TYPES, TRIP_PURPOSES, VEHICLE_CATEGORIES, OTHER_CATEGORIES, VEHICLE_INFO } from './reference.js';
+import { INCOME_TYPES, VEHICLE_CATEGORIES, OTHER_CATEGORIES, VEHICLE_INFO } from './reference.js';
 import { $, $$, esc, money, num, pct, MONTHS, monthKey, monthLabel, fmtDate, sum, groupBy } from './util.js';
 
 const Y = () => state.settings.year;
@@ -31,9 +33,9 @@ const amountOf = r => money(r.amount, r.currency);
 const cadNote = r => (r.currency !== 'USD' ? '' : r.cadAmount != null ? `${money(r.cadAmount)} CAD @ ${num(r.fxRate, 4)}` : '<span class="warn-text">no rate recorded</span>');
 
 // Filter bar. `st` is kept per view so filters survive re-renders.
-const filters = { income: {}, trips: {}, expenses: { group: '' } };
+const filters = { income: {}, expenses: { group: '' } };
 
-function filterBar(st, selects) {
+export function filterBar(st, selects) {
   const months = MONTHS.map((m, i) => ({ value: String(i + 1).padStart(2, '0'), label: m }));
   const sel = (name, label, opts) => `<select data-flt="${name}" aria-label="${esc(label)}"><option value="">${esc(label)}</option>${opts.map(o => {
     const v = typeof o === 'string' ? { value: o, label: o } : o;
@@ -54,7 +56,7 @@ function filterBar(st, selects) {
   </div>`;
 }
 
-function wireFilters(root, st, paint) {
+export function wireFilters(root, st, paint) {
   $$('[data-flt]', root).forEach(el => {
     const on = () => { st[el.dataset.flt] = el.value; paint(); };
     el.addEventListener('input', on);
@@ -62,7 +64,7 @@ function wireFilters(root, st, paint) {
   });
 }
 
-function passes(r, st, text) {
+export function passes(r, st, text) {
   if (st.q && !text.toLowerCase().includes(st.q.toLowerCase())) return false;
   if (st.month && r.date.slice(5, 7) !== st.month) return false;
   if (st.from && r.date < st.from) return false;
@@ -72,7 +74,7 @@ function passes(r, st, text) {
   return true;
 }
 
-const customerOptions = () => [...all('customer')].sort((a, b) => a.name.localeCompare(b.name)).map(c => ({ value: c.id, label: c.name }));
+export const customerOptions = () => [...all('customer')].sort((a, b) => a.name.localeCompare(b.name)).map(c => ({ value: c.id, label: c.name }));
 const newestFirst = list => [...list].sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || '').localeCompare(a.createdAt || ''));
 
 // Renders records grouped under month headings with a subtotal.
@@ -131,11 +133,13 @@ export function home(root) {
   const hasData = s.income.count || s.exp.items.length || s.km.loggedBiz;
   root.innerHTML = `
     <div class="page-head"><div><h1>Tax year ${Y()}</h1><p class="muted">Estimates only &mdash; not a tax filing.</p></div></div>
+    <button class="quick-btn wide start" data-act="${activeTrip() ? 'stop-trip' : 'start-trip'}">${activeTrip() ? 'STOP TRIP' : '&#128663; START TRIP'}</button>
     <div class="quick">
       <button class="quick-btn" data-act="add-income">+ Add Income</button>
       <button class="quick-btn" data-act="add-trip">+ Add Trip</button>
       <button class="quick-btn" data-act="add-expense">+ Add Expense</button>
       <button class="quick-btn" data-act="add-install">+ Add Installation</button>
+      <button class="quick-btn" data-act="add-equip">+ Add Equipment</button>
     </div>
     ${expectedBlock(Y(), { limit: 3 })}
     <section class="panel">
@@ -153,6 +157,7 @@ export function home(root) {
         ${stat('Est. deductible vehicle expenses', money(s.exp.vehicleEst), `${pct(s.km.pct)} of ${money(s.exp.vehicleTotal, 'CAD', 0)}`)}
         ${stat('Est. other deductible expenses', money(s.exp.otherEst))}
       </div>
+      ${s.equip.rows.length || s.cca.rows.length ? `<p class="muted">Also in the estimate: equipment &amp; technology ${money(s.equip.counted)} (<a href="#/equipment">open</a>)${s.cca.rows.length ? ` &middot; vehicle CCA ${money(s.cca.counted)} (<a href="#/assets">open</a>)` : ''}.</p>` : ''}
     </section>
     <section class="panel">
       <h2>Bottom line <a class="link" href="#/tax">Tax estimate</a></h2>
@@ -163,7 +168,7 @@ export function home(root) {
       </div>
     </section>
     <section class="panel">
-      <h2>Kilometres <a class="link" href="#/trips">Trips</a></h2>
+      <h2>Kilometres <a class="link" href="#/trips">Mileage</a></h2>
       <div class="stats">
         ${stat('Business kilometres', `${num(s.km.business)} km`)}
         ${stat('Total kilometres', `${num(s.km.total)} km`, esc(s.km.totalSource))}
@@ -183,7 +188,7 @@ export function home(root) {
       <section class="panel"><h2>USD vs CAD income <small>(CAD value)</small></h2>${splitBar({ label: 'Paid in USD', value: s.income.usdConverted }, { label: 'Paid in CAD', value: s.income.cadNative }, v => money(v, 'CAD', 0))}</section>
     </div>` : `<section class="panel"><p class="muted">No records for ${Y()} yet. Use the buttons above to add your first income, trip or expense. Charts appear here once you have data.</p></section>`}
     <p class="where muted">Your records are stored only in this browser on this device. <a href="#/export">Back up regularly</a>.</p>`;
-  wire(root, { 'add-income': () => incomeForm(), 'add-trip': () => tripForm(), 'add-expense': () => expenseForm(), 'add-install': () => installationForm(), ...expActions });
+  wire(root, { 'start-trip': startTripForm, 'stop-trip': stopTripForm, 'add-income': () => incomeForm(), 'add-trip': () => tripForm(), 'add-expense': () => expenseForm(), 'add-install': () => installationForm(), 'add-equip': () => equipForm(), ...expActions });
 }
 
 // ---- income ----------------------------------------------------------------
@@ -219,62 +224,6 @@ export function income(root) {
   paint();
   wireFilters(root, st, paint);
   wire(root, { add: () => incomeForm(), edit: id => incomeForm(byId('income', id)), 'clear-filters': () => { filters.income = {}; income(root); }, ...expActions });
-}
-
-// ---- trips -----------------------------------------------------------------
-
-export function yearKmForm() {
-  const ys = yearSettings(Y());
-  openForm({
-    title: `${Y()} vehicle kilometres`,
-    intro: 'Business-use % = business km ÷ total km. Total km needs your whole year of driving, including personal - the most reliable source is your odometer on January 1 and December 31.',
-    values: { ...ys },
-    fields: [
-      { name: 'odoStart', label: 'Odometer at start of year', type: 'number', half: true },
-      { name: 'odoEnd', label: 'Odometer at end of year (or today)', type: 'number', half: true },
-      { name: 'totalKm', label: 'Total km driven this year (overrides odometer)', type: 'number', hint: 'Leave blank to use the odometer readings.' },
-      { name: 'bizKmOverride', label: 'Business km this year (overrides trip log)', type: 'number', hint: 'Leave blank to use your logged business trips - recommended.' },
-    ],
-    async onSave(v) {
-      if (v.odoStart != null && v.odoEnd != null && v.odoEnd < v.odoStart) throw new Error('End odometer is lower than start odometer.');
-      Object.assign(ys, { odoStart: v.odoStart, odoEnd: v.odoEnd, totalKm: v.totalKm, bizKmOverride: v.bizKmOverride });
-      await saveSettings();
-      toast('Saved.');
-    },
-  });
-}
-
-export function trips(root) {
-  const st = filters.trips;
-  const k = kmSummary(Y());
-  root.innerHTML = `
-    ${head('Trips & mileage', '<button class="btn primary" data-act="add">+ Add trip</button>')}
-    <div class="stats strip">
-      ${stat('Business km', num(k.business), esc(k.businessSource))}
-      ${stat('Total km', num(k.total), esc(k.totalSource))}
-      ${stat('Business use', pct(k.pct))}
-    </div>
-    ${k.totalIsWeak ? `<p class="callout">Total kilometres for ${Y()} are not entered yet, so the business-use % only reflects logged trips. <button class="btn small" data-act="year-km">Enter year totals</button></p>` : `<p class="muted"><button class="btn small" data-act="year-km">Edit year totals / odometer</button></p>`}
-    ${filterBar(st, [
-      { name: 'type', label: 'Business & personal', options: [{ value: 'business', label: 'Business' }, { value: 'personal', label: 'Personal' }] },
-      { name: 'purpose', label: 'All purposes', options: TRIP_PURPOSES },
-      { name: 'customer', label: 'All customers', options: customerOptions() },
-    ])}
-    <div data-list></div>`;
-  const paint = () => {
-    const list = inYear('trip', Y()).filter(t => passes(t, st, `${t.from} ${t.to} ${t.purpose} ${t.notes} ${customerName(t.customerId)} ${t.id}`)
-      && (!st.type || t.type === st.type) && (!st.purpose || t.purpose === st.purpose));
-    $('[data-list]', root).innerHTML = all('trip').length === 0 ? empty('No trips logged yet.') : monthGroups(list, t => row({
-      id: t.id,
-      title: `${esc(t.from || 'Start')} &rarr; ${esc(t.to)} ${t.type === 'personal' ? tag('Personal') : ''}${t.sourceType === 'installation' ? tag('Installation') : ''}`,
-      sub: `${fmtDate(t.date)} &middot; ${esc(t.purpose || '')}${customerName(t.customerId) ? ` &middot; ${esc(customerName(t.customerId))}` : ''}`,
-      right: `${num(t.km, t.km % 1 ? 1 : 0)} km`,
-      rightSub: t.odoStart != null && t.odoEnd != null ? `${num(t.odoStart)} &rarr; ${num(t.odoEnd)}` : '',
-    }), rows => `${num(sum(rows.filter(t => t.type !== 'personal'), t => t.km))} business km`);
-  };
-  paint();
-  wireFilters(root, st, paint);
-  wire(root, { add: () => tripForm(), edit: id => tripForm(byId('trip', id)), 'year-km': yearKmForm, 'clear-filters': () => { filters.trips = {}; trips(root); } });
 }
 
 // ---- expenses --------------------------------------------------------------
@@ -381,7 +330,7 @@ export function customer(root, id) {
     <section class="panel"><h2>Recurring income <button class="btn small" data-act="add-recur">+ Add</button></h2>
       ${recur.length ? recur.map(r => row({ id: r.id, act: 'edit-recur', title: esc(r.type), sub: `From ${monthLabel(r.startMonth)}${r.endMonth ? ` to ${monthLabel(r.endMonth)}` : ''}`, right: `${money(r.amount, r.currency)}/mo` })).join('') : empty('None set up.')}
     </section>
-    <p class="muted">Business kilometres for this customer in ${Y()}: ${num(t.km)} km</p>`;
+    <p class="muted">Business kilometres for this customer: <strong>${num(t.km)} km</strong> in ${Y()} &middot; ${num(sum(all('trip').filter(x => x.customerId === id && x.type !== 'personal'), x => x.km))} km all years. <a href="#/trips">Mileage</a></p>`;
   wire(root, {
     'edit-c': () => customerForm(c),
     'add-income': () => incomeForm({ customerId: id }), 'edit-income': x => incomeForm(byId('income', x)),
@@ -491,8 +440,10 @@ export function more(root) {
     ['recurring', 'Recurring income', 'Expected monthly commissions to confirm'],
     ['months', 'Monthly payouts', 'Month-by-month income and expenses'],
     ['assets', 'Vehicle assets & CCA', 'Vehicle purchases, CCA, cost forecast and "Can I deduct this?"'],
+    ['equipment', 'Equipment & technology', 'Computers, electronics, software, subscriptions and their tax treatment'],
     ['tax', 'Tax estimate', 'Estimated amount to set aside'],
     ['review', 'Year-end review', 'Summary and expenses to discuss with your accountant'],
+    ['cra', 'CRA / Tax filing', 'Prepare the tax package for certified software or your accountant'],
     ['reference', 'Could I write this off?', 'Potential business expenses and what to keep'],
     ['export', 'Export & backup', 'CSV and PDF for your accountant, backup and restore'],
     ['settings', 'Settings', 'Tax year, province, vehicle, app lock, theme'],

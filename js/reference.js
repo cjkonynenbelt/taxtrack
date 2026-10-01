@@ -22,7 +22,8 @@ export const VERIFY ='Verify the current CRA rules or ask your accountant before
 export const POTENTIAL = 'Potentially deductible depending on your circumstances.';
 
 export const INCOME_TYPES = ['Monthly residual/commission', 'Installation payment', 'Sales commission', 'Bonus', 'Other business income'];
-export const TRIP_PURPOSES = ['Sales meeting', 'Prospecting', 'Customer visit', 'Payment-system installation', 'Training', 'Business errand', 'Other business purpose'];
+export const TRIP_PURPOSES = ['Sales meeting', 'Prospecting', 'Customer installation', 'Customer visit', 'Equipment delivery', 'Training', 'Business errand', 'Other business'];
+export const PERSONAL = 'Personal';
 
 export const VEHICLE_CATEGORIES = ['Fuel', 'Insurance', 'Repairs', 'Maintenance', 'Tires', 'Oil changes', 'Registration', 'Parking', 'Tolls', 'Car washes', 'Financing interest', 'Lease payments', 'Other vehicle expenses'];
 
@@ -38,7 +39,7 @@ export const CATEGORIES = {
   'Internet': { docs: [...RECEIPT, 'Monthly bill', 'How you worked out the business-use %'], warn: 'Enter the business-use share only.', pctHint: 'Business share of use', link: anchor('telephoneandutilities') },
   'Advertising & marketing': { docs: [...RECEIPT, 'What was advertised and where'], link: anchor('advertising') },
   'Software & subscriptions': { docs: [...RECEIPT, 'What the software is used for'], link: anchor('officeexpenses') },
-  'Computer/equipment': { docs: [...RECEIPT, 'Date purchased', 'Description / serial number', 'Business-use percentage'], warn: 'Equipment is usually a capital purchase claimed gradually through capital cost allowance (CCA), not as an expense in the year you buy it. Tracked separately and left out of the estimate unless you change that in Settings.', review: 'Equipment - may need capital cost allowance (CCA) treatment', capital: true, link: LINKS.cca },
+  'Computer/equipment': { docs: [...RECEIPT, 'Date purchased', 'Description / serial number', 'Business-use percentage'], warn: 'Record computers, electronics and other equipment under Equipment & Technology instead - it works out the likely treatment and CCA. Anything entered here is left out of the estimate unless you change that in Settings.', review: 'Equipment - may need capital cost allowance (CCA) treatment', capital: true, link: LINKS.cca },
   'Office supplies': { docs: RECEIPT, warn: 'Small consumables only (paper, ink, pens, postage). Furniture, calculators and similar lasting items are capital items.', link: anchor('officeexpenses') },
   'Business insurance': { docs: [...RECEIPT, 'Policy document'], link: anchor('insurance') },
   'Accounting & professional fees': { docs: [...RECEIPT, 'What the service was for'], link: anchor('legalaccountingandotherprofessionalfees') },

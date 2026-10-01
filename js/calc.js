@@ -4,6 +4,7 @@ import { state, all, yearSettings, customerName, expectedPayments } from './stor
 import { CATEGORIES, LARGE_PURCHASE } from './reference.js';
 import { ratesFor, PROVINCES } from './tax-rates.js';
 import { schedule, purchaseYear } from './cca.js';
+import { equipSummary } from './equip.js';
 import { yearOf, monthOf, round2, sum } from './util.js';
 
 export const inYear = (kind, year) => all(kind).filter(r => yearOf(r.date) === year);
@@ -16,23 +17,94 @@ export function cadOf(r) {
 
 // ---- kilometres ------------------------------------------------------------
 
-export function kmSummary(year) {
-  const ys = yearSettings(year);
-  const trips = inYear('trip', year);
-  const loggedBiz = sum(trips.filter(t => t.type !== 'personal'), t => t.km);
+// Every trip and vehicle expense belongs to a vehicle. Records with no vehicle,
+// or one that was since renamed/removed, fall back to the default vehicle.
+export const normVehicle = v => (state.settings.vehicles.includes(v) ? v : state.settings.defaultVehicle);
+
+// Year totals for one vehicle: its own odometer/totals if entered, otherwise
+// (for the default vehicle) the single-vehicle totals entered before vehicles
+// had their own records.
+export function vehicleYear(name, year) {
+  const info = (state.settings.vehicleInfo[name] || {}).years;
+  if (info && info[year]) return info[year];
+  return name === state.settings.defaultVehicle ? yearSettings(year) : {};
+}
+
+export function vehicleKm(year, name) {
+  const src = vehicleYear(name, year);
+  const trips = inYear('trip', year).filter(t => normVehicle(t.vehicle) === name);
+  const biz = trips.filter(t => t.type !== 'personal');
+  const loggedBiz = sum(biz, t => t.km);
   const loggedPersonal = sum(trips.filter(t => t.type === 'personal'), t => t.km);
-  const business = ys.bizKmOverride != null ? ys.bizKmOverride : loggedBiz;
+  const business = src.bizKmOverride != null ? src.bizKmOverride : loggedBiz;
+  const hasOdo = src.odoStart != null && src.odoEnd != null && src.odoEnd > src.odoStart;
   let total, totalSource;
-  if (ys.totalKm != null) { total = ys.totalKm; totalSource = 'entered in Settings'; }
-  else if (ys.odoStart != null && ys.odoEnd != null && ys.odoEnd > ys.odoStart) { total = ys.odoEnd - ys.odoStart; totalSource = 'year-start/end odometer'; }
+  if (src.totalKm != null) { total = src.totalKm; totalSource = 'year total entered'; }
+  else if (hasOdo) { total = src.odoEnd - src.odoStart; totalSource = 'year-start/end odometer'; }
   else { total = loggedBiz + loggedPersonal; totalSource = 'logged trips only'; }
-  const pct = total > 0 ? Math.min(1, business / total) : 0;
   return {
-    loggedBiz, loggedPersonal, business, total, totalSource, pct,
+    name, trips, loggedBiz, loggedPersonal, business, total, totalSource,
+    pct: total > 0 ? Math.min(1, business / total) : 0,
     personal: Math.max(0, total - business),
-    businessSource: ys.bizKmOverride != null ? 'entered in Settings' : 'trip log',
-    totalIsWeak: ys.totalKm == null && !(ys.odoStart != null && ys.odoEnd != null),
+    businessSource: src.bizKmOverride != null ? 'entered manually' : 'trip log',
+    totalIsWeak: src.totalKm == null && !hasOdo,
+    odoStart: src.odoStart ?? null, odoEnd: src.odoEnd ?? null,
+    bizTrips: biz.length,
+    role: (state.settings.vehicleInfo[name] || {}).role || '',
   };
+}
+
+// All vehicles combined.
+export function kmSummary(year) {
+  const vehicles = state.settings.vehicles.map(v => vehicleKm(year, v));
+  const used = vehicles.filter(v => v.total > 0 || v.business > 0);
+  const business = sum(vehicles, v => v.business);
+  const total = sum(vehicles, v => v.total);
+  const one = used.length === 1 ? used[0] : vehicles.length === 1 ? vehicles[0] : null;
+  const weak = (used.length ? used : vehicles).some(v => v.totalIsWeak);
+  return {
+    vehicles,
+    loggedBiz: sum(vehicles, v => v.loggedBiz), loggedPersonal: sum(vehicles, v => v.loggedPersonal),
+    business, total,
+    totalSource: one ? one.totalSource : weak ? 'all vehicles, some from logged trips only' : 'all vehicles combined',
+    pct: total > 0 ? Math.min(1, business / total) : 0,
+    personal: Math.max(0, total - business),
+    businessSource: one ? one.businessSource : 'trip log',
+    totalIsWeak: weak,
+    bizTrips: sum(vehicles, v => v.bizTrips),
+  };
+}
+
+// Month-by-month logged kilometres (trip log only - odometer totals are yearly).
+export function mileageByMonth(year) {
+  const rows = Array.from({ length: 12 }, () => ({ business: 0, personal: 0 }));
+  for (const t of inYear('trip', year)) rows[monthOf(t.date) - 1][t.type === 'personal' ? 'personal' : 'business'] += Number(t.km) || 0;
+  return rows.map(r => ({ ...r, total: r.business + r.personal, pct: r.business + r.personal > 0 ? r.business / (r.business + r.personal) : null }));
+}
+
+export const GAP_KM = 100; // unlogged distance between two odometer readings worth a warning
+
+// Things in the mileage records that do not add up.
+export function mileageWarnings(year) {
+  const out = [];
+  for (const v of kmSummary(year).vehicles) {
+    if (v.odoStart != null && v.odoEnd != null && v.odoEnd < v.odoStart) out.push(`${v.name}: year-end odometer is lower than year-start odometer.`);
+    if (v.total > 0 && v.business > v.total) out.push(`${v.name}: business kilometres (${Math.round(v.business)}) exceed total kilometres (${Math.round(v.total)}). Check the year totals.`);
+    if (!v.totalIsWeak && v.loggedBiz + v.loggedPersonal > v.total) out.push(`${v.name}: logged trips add up to more than the total kilometres for the year.`);
+    const odo = v.trips.filter(t => t.odoStart != null && t.odoEnd != null).sort((a, b) => a.odoStart - b.odoStart);
+    for (let i = 1; i < odo.length; i++) {
+      const prev = odo[i - 1], cur = odo[i];
+      if (cur.odoStart < prev.odoEnd) out.push(`${v.name}: odometer readings overlap between ${prev.date} (${prev.to}) and ${cur.date} (${cur.to}).`);
+      else if (cur.odoStart - prev.odoEnd > GAP_KM) out.push(`${v.name}: ${Math.round(cur.odoStart - prev.odoEnd)} km not logged between ${prev.date} and ${cur.date}. Add the missing trips, or log them as personal.`);
+      if (cur.date < prev.date) out.push(`${v.name}: the trip on ${cur.date} has a higher odometer than a later trip on ${prev.date}.`);
+    }
+    const timed = v.trips.filter(t => t.startTime && t.endTime).sort((a, b) => `${a.date}${a.startTime}`.localeCompare(`${b.date}${b.startTime}`));
+    for (let i = 1; i < timed.length; i++) {
+      const prev = timed[i - 1], cur = timed[i];
+      if (cur.date === prev.date && cur.startTime < prev.endTime) out.push(`${v.name}: two trips overlap in time on ${cur.date} (${prev.to} and ${cur.to}).`);
+    }
+  }
+  return out;
 }
 
 // ---- expenses --------------------------------------------------------------
@@ -44,6 +116,8 @@ export function expenseParts(e, kmPct) {
   const base = cad || 0;
   let portion, est, note = '';
   if (e.group === 'vehicle') {
+    // Each vehicle's running costs use that vehicle's own business-use %.
+    kmPct = vehicleKm(yearOf(e.date), normVehicle(e.vehicle)).pct;
     if (e.use === 'personal') { portion = 0; note = 'Personal'; }
     else if (e.use === 'business') { portion = base; note = '100% business'; }
     else { portion = base * kmPct; note = `Business-use ${Math.round(kmPct * 1000) / 10}%`; }
@@ -144,8 +218,9 @@ export function summary(year = state.settings.year) {
   exp.est = exp.vehicleEst + exp.otherEst;
 
   const cca = ccaSummary(year);
-  const net = inc.cad - exp.est - cca.counted;
-  return { year, km, income: inc, exp, cca, net, tax: taxEstimate(year, net), expected: expectedPayments(year) };
+  const equip = equipSummary(year);
+  const net = inc.cad - exp.est - cca.counted - equip.counted;
+  return { year, km, income: inc, exp, cca, equip, net, tax: taxEstimate(year, net), expected: expectedPayments(year) };
 }
 
 // ---- month view ------------------------------------------------------------

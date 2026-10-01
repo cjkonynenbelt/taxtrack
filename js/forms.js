@@ -2,7 +2,7 @@
 
 import { state, all, byId, save, remove, resolveCustomer, customerName, customerRefs, saveInstallation, fxFields } from './store.js';
 import { openForm, confirmDialog, toast, finalizeReceipt } from './ui.js';
-import { INCOME_TYPES, TRIP_PURPOSES, VEHICLE_CATEGORIES, OTHER_CATEGORIES, CATEGORIES, VEHICLE_INFO, VERIFY } from './reference.js';
+import { INCOME_TYPES, VEHICLE_CATEGORIES, OTHER_CATEGORIES, CATEGORIES, VEHICLE_INFO, VERIFY } from './reference.js';
 import { kmSummary } from './calc.js';
 import { today, money, num, esc, yearOf, round2, monthLabel } from './util.js';
 
@@ -17,7 +17,7 @@ function savedNote(date) {
 
 // Exchange-rate fields shared by income, expenses and installations.
 // Nothing is converted unless the user types a rate or the CAD amount.
-function fxDefs(cond) {
+export function fxDefs(cond) {
   return [
     { name: 'fxMethod', label: 'Record the CAD value by', type: 'seg', showIf: cond, options: [{ value: 'rate', label: 'Exchange rate' }, { value: 'cad', label: 'CAD amount received' }] },
     { name: 'fxRate', label: 'Exchange rate (1 USD = ? CAD)', type: 'number', placeholder: 'e.g. 1.3725', showIf: v => cond(v) && v.fxMethod !== 'cad' },
@@ -33,7 +33,7 @@ function fxDefs(cond) {
   ];
 }
 
-function requireFx(v, what) {
+export function requireFx(v, what) {
   if (v.currency === 'USD' && fxFields(v).cadAmount == null) throw new Error(`Enter the exchange rate or the CAD amount ${what}. The app never assumes a rate.`);
 }
 
@@ -81,42 +81,6 @@ export function incomeForm(rec = {}) {
       savedNote(v.date);
     },
     onDelete: rec.id ? () => askDelete('income', rec, 'income record', rec.sourceType === 'recurring' ? 'The expected payment for that month will show as unconfirmed again.' : '') : null,
-  });
-}
-
-// ---- trips -----------------------------------------------------------------
-
-export function tripForm(rec = {}) {
-  if (rec.sourceType === 'installation' && byId('installation', rec.sourceId)) return installationForm(byId('installation', rec.sourceId));
-  const values = { date: today(), from: state.settings.homeBase || 'Home', purpose: TRIP_PURPOSES[0], type: 'business', ...rec, customerName: customerName(rec.customerId) };
-  openForm({
-    title: rec.id ? 'Edit trip' : 'Add trip',
-    values,
-    openAdvanced: !!rec.id,
-    fields: [
-      { name: 'to', label: 'Destination', type: 'text', required: true, focus: true, list: uniq([...all('trip').map(t => t.to), ...all('customer').map(c => c.address)]) },
-      { name: 'purpose', label: 'Purpose', type: 'select', options: TRIP_PURPOSES, showIf: v => v.type !== 'personal' },
-      { name: 'customerName', label: 'Customer / business', type: 'text', list: customerNames(), showIf: v => v.type !== 'personal' },
-      { name: 'km', label: 'Kilometres', type: 'number', required: true, hint: 'Or enter odometer readings under More details.' },
-      { name: 'date', label: 'Date', type: 'date', required: true, advanced: true, half: true },
-      { name: 'type', label: 'Trip type', type: 'seg', advanced: true, half: true, options: [{ value: 'business', label: 'Business' }, { value: 'personal', label: 'Personal' }] },
-      { name: 'from', label: 'Starting location', type: 'text', advanced: true },
-      { name: 'odoStart', label: 'Starting odometer', type: 'number', advanced: true, half: true },
-      { name: 'odoEnd', label: 'Ending odometer', type: 'number', advanced: true, half: true },
-      { name: 'notes', label: 'Notes', type: 'textarea', advanced: true },
-    ],
-    onChange(v, set, name) {
-      if ((name === 'odoStart' || name === 'odoEnd') && v.odoStart != null && v.odoEnd != null && v.odoEnd >= v.odoStart) set('km', round2(v.odoEnd - v.odoStart));
-    },
-    async onSave(v) {
-      if (v.odoStart != null && v.odoEnd != null && v.odoEnd < v.odoStart) throw new Error('Ending odometer is lower than the starting odometer.');
-      if (!(v.km > 0)) throw new Error('Enter the kilometres driven.');
-      const { customerName: cn, ...clean } = v;
-      if (v.type === 'personal') clean.purpose = 'Personal';
-      await save('trip', { ...clean, customerId: v.type === 'personal' ? null : await resolveCustomer(cn) });
-      savedNote(v.date);
-    },
-    onDelete: rec.id ? () => askDelete('trip', rec, 'trip') : null,
   });
 }
 

@@ -1,10 +1,11 @@
 // "Export for accountant": CSV files, the year-end PDF summary, and full backups.
 
 import { state, all, customerName, exportAll, yearSettings } from './store.js';
-import { summary, inYear, cadOf, expenseParts, reviewReasons, customerTotals } from './calc.js';
+import { summary, inYear, cadOf, expenseParts, reviewReasons, customerTotals, kmSummary, normVehicle, mileageWarnings } from './calc.js';
 import { Pdf } from './pdf.js';
 import { schedule, assetName } from './cca.js';
-import { download, money, num, pct, MONTHS, today, fmtDate } from './util.js';
+import { equipSchedule, equipFlags, earnsList } from './equip.js';
+import { download, money, num, pct, MONTHS, today, fmtDate, round2 } from './util.js';
 
 const cell = v => {
   const s = v == null ? '' : String(v);
@@ -50,9 +51,21 @@ export const CSV = {
   mileage: {
     label: 'Mileage log',
     build(year) {
+      const k = kmSummary(year);
+      const blank = n => Array(n).fill('');
       return toCsv(
-        ['Record ID', 'Date', 'From', 'To', 'Purpose', 'Customer', 'Start odometer', 'End odometer', 'Kilometres', 'Business/personal', 'Notes', 'Source', 'Source record ID'],
-        byDate(inYear('trip', year)).map(t => [t.id, t.date, t.from, t.to, t.purpose, customerName(t.customerId), t.odoStart, t.odoEnd, t.km, t.type, t.notes, t.sourceType || 'manual', t.sourceId]));
+        ['Tax year', 'Vehicle', 'Date', 'Start time', 'End time', 'Minutes', 'Start location', 'Destination', 'Purpose', 'Business purpose', 'Customer', 'Starting odometer', 'Ending odometer', 'Kilometres', 'Business/personal', 'Distance from', 'Notes', 'Record ID', 'Source', 'Source record ID'],
+        [
+          ...byDate(inYear('trip', year)).map(t => [year, normVehicle(t.vehicle), t.date, t.startTime, t.endTime, t.durationMin, t.from, t.to, t.purpose, t.detail, customerName(t.customerId), t.odoStart, t.odoEnd, t.km, t.type === 'personal' ? 'Personal' : 'Business', t.distanceSource || 'manual', t.notes, t.id, t.sourceType || 'manual', t.sourceId]),
+          [],
+          ...k.vehicles.flatMap(v => [
+            [year, v.name, ...blank(5), 'TOTAL KILOMETRES', v.totalSource, ...blank(4), round2(v.total)],
+            [year, v.name, ...blank(5), 'TOTAL BUSINESS KILOMETRES', v.businessSource, ...blank(4), round2(v.business)],
+            [year, v.name, ...blank(5), 'TOTAL PERSONAL KILOMETRES', '', ...blank(4), round2(v.personal)],
+            [year, v.name, ...blank(5), 'BUSINESS-USE PERCENTAGE', '', ...blank(4), `${num(v.pct * 100, 1)}%`],
+          ]),
+          ...(k.vehicles.length > 1 ? [[year, 'ALL VEHICLES', ...blank(5), 'TOTAL / BUSINESS / PERSONAL KM', '', ...blank(4), `${round2(k.total)} / ${round2(k.business)} / ${round2(k.personal)}`], [year, 'ALL VEHICLES', ...blank(5), 'BUSINESS-USE PERCENTAGE', '', ...blank(4), `${num(k.pct * 100, 1)}%`]] : []),
+        ]);
     },
   },
   customers: {
@@ -72,6 +85,23 @@ export const CSV = {
       return toCsv(
         ['Record ID', 'Date', 'Customer', 'Address', 'Payment amount', 'Currency', 'Payment received', 'Date received', 'CAD amount', 'Travel km', 'Linked income ID', 'Linked trip ID', 'Notes'],
         byDate(inYear('installation', year)).map(i => [i.id, i.date, customerName(i.customerId), i.address, i.amount, i.currency, yn(i.paid), i.paidDate, i.cadAmount, i.km, i.incomeId, i.tripId, i.notes]));
+    },
+  },
+  equipment: {
+    label: 'Equipment & technology',
+    build(year) {
+      const rows = [];
+      for (const e of all('equip')) {
+        const s = equipSchedule(e, Math.max(year, Number(String(e.date).slice(0, 4))));
+        const t = s.t;
+        const r = s.rows.find(x => x.year === year);
+        rows.push([e.id, e.name, e.category, e.brand, e.vendor, e.date, e.condition, e.price, e.salesTax, e.currency, e.fxRate, t.cost, t.pct, t.cost == null ? '' : round2(t.cost * t.pct / 100),
+          t.label, t.level, t.cls ? `Class ${t.cls}` : '', year, r ? r.open : '', r ? r.cca : '', r ? r.pct : '', r ? r.deductible : '', r ? r.close : '',
+          [...earnsList(e), e.earnsText].filter(Boolean).join('; '), yn(e.receiptId), equipFlags(e).join('; '), e.notes]);
+      }
+      return toCsv(['Record ID', 'Item', 'Category', 'Brand/model', 'Vendor', 'Purchase date', 'New/used', 'Price', 'Sales tax', 'Currency', 'Exchange rate', 'Cost (CAD)', 'Business-use %', 'Business-use cost (CAD)',
+        'Preliminary tax treatment', 'Confidence', 'CCA class (likely)', 'Tax year', 'Opening UCC', 'CCA / expense (estimate)', 'Business-use % that year', 'Deductible (estimate)', 'Closing UCC',
+        'Business purpose', 'Has receipt', 'Items to discuss', 'Notes'], rows);
     },
   },
   assets: {
@@ -158,6 +188,15 @@ export function buildPdf(year = state.settings.year) {
     doc.para(`Estimated deductible CCA ${year}: ${$(s.cca.deductible)} (${state.settings.includeCca === false ? 'not included' : 'included'} in estimated net business income). CCA class is a likely treatment from CRA's vehicle definitions chart and the first-year rule is the owner's selection; both to be confirmed.`);
   }
 
+  if (s.equip.rows.length) {
+    doc.h2('Equipment and technology (estimates)');
+    doc.table([{ label: 'Item', width: 0.24 }, { label: 'Bought', width: 0.11 }, { label: 'Cost', width: 0.12, align: 'right' }, { label: 'Bus. %', width: 0.07, align: 'right' }, { label: 'Treatment (likely)', width: 0.24 }, { label: `Deductible ${year}`, width: 0.11, align: 'right' }, { label: 'Closing UCC', width: 0.11, align: 'right' }],
+      s.equip.rows.filter(r => String(r.e.date).slice(0, 4) <= String(year)).map(r => [r.e.name, r.e.date, r.t.cost == null ? 'no rate' : $(r.t.cost), `%`, r.t.kind === 'capital' ? (r.t.cls ? `CCA Class ${r.t.cls}` : 'CCA - class to verify') : r.t.kind === 'current' ? 'Current expense' : 'Personal', r.row ? $(r.row.deductible) : '', r.row && !r.row.current ? $(r.row.close) : '']));
+    doc.para(`Current expenses (business share): ${$(s.equip.current)}. Potential CCA (business share): ${$(s.equip.cca)}. Treatments and classes are likely treatments to be confirmed; low-cost items are treated as current expenses using the owner's working threshold, not a CRA rule.`);
+    const disc = s.equip.rows.filter(r => r.flags.length && String(r.e.date).slice(0, 4) <= String(year));
+    if (disc.length) doc.table([{ label: 'Equipment items to discuss', width: 0.3 }, { label: 'Why', width: 0.7 }], disc.map(r => [r.e.name, r.flags.join('; ')]));
+  }
+
   doc.h2('Other business expenses by category');
   doc.table([{ label: 'Category', width: 0.4 }, { label: 'Total paid', width: 0.2, align: 'right' }, { label: 'Business portion', width: 0.2, align: 'right' }, { label: 'In estimate', width: 0.2, align: 'right' }],
     Object.entries(s.exp.byCategory).sort((a, c) => c[1].total - a[1].total).map(([k, v]) => [k, $(v.total), $(v.portion), $(v.est)]));
@@ -167,6 +206,7 @@ export function buildPdf(year = state.settings.year) {
   doc.kv('Gross business income', $(s.income.cad));
   doc.kv('Estimated deductible business expenses', $(s.exp.est));
   if (s.cca.rows.length) doc.kv('Estimated vehicle CCA counted (business share)', $(s.cca.counted));
+  if (s.equip.rows.length) doc.kv('Estimated equipment and technology counted', $(s.equip.counted));
   doc.kv('Estimated net business income', $(s.net), { bold: true });
   doc.kv('Other employment income (assumption)', $(t.assumptions.otherEmployment || 0));
   doc.kv('Other taxable income (assumption)', $(t.assumptions.otherIncome || 0));
@@ -193,6 +233,43 @@ export function buildPdf(year = state.settings.year) {
   doc.para(ys.notes || 'No notes entered for this year.');
   doc.para('Supporting detail (every income, expense, mileage and customer record with its unique record ID) is provided in the accompanying CSV files. Receipts are stored with the owner.');
   return doc.build();
+}
+
+// ---- mileage log PDF -------------------------------------------------------
+
+export function buildMileagePdf(year = state.settings.year) {
+  const k = kmSummary(year);
+  const b = state.settings.business;
+  const doc = new Pdf({ footer: `${b.name || b.owner || 'Business'} - ${year} mileage log` });
+  doc.title(`${year} Mileage Log`, [b.name, b.owner, `Prepared ${fmtDate(today())}`].filter(Boolean).join('  |  '));
+  doc.para('Vehicle log kept by the owner. Distances are from odometer readings where shown; otherwise as entered by the owner or measured by GPS (see the CSV export for the source of each distance).');
+  for (const v of k.vehicles) {
+    if (!v.trips.length && !v.total) continue;
+    doc.h2(`${v.name}${v.role ? ` - ${v.role}` : ''}`);
+    doc.table(
+      [{ label: 'Date', width: 0.1 }, { label: 'Route', width: 0.24 }, { label: 'Purpose / notes', width: 0.27 }, { label: 'Customer', width: 0.14 }, { label: 'Odometer', width: 0.11 }, { label: 'KM', width: 0.07, align: 'right' }, { label: 'Type', width: 0.07 }],
+      byDate(v.trips).map(t => [t.date, `${t.from || '?'} -> ${t.to}`, [t.purpose, t.detail, t.notes].filter(Boolean).join('. '), customerName(t.customerId), t.odoStart != null && t.odoEnd != null ? `${t.odoStart} - ${t.odoEnd}` : '', num(t.km, t.km % 1 ? 1 : 0), t.type === 'personal' ? 'Personal' : 'Business']));
+    if (v.odoStart != null || v.odoEnd != null) doc.kv('Odometer at start of year / latest', `${num(v.odoStart)} / ${num(v.odoEnd)}`);
+    doc.kv(`Total kilometres (${v.totalSource})`, `${num(v.total)} km`, { bold: true });
+    doc.kv(`Total business kilometres (${v.businessSource})`, `${num(v.business)} km`, { bold: true });
+    doc.kv('Total personal kilometres', `${num(v.personal)} km`);
+    doc.kv('Business-use percentage', pct(v.pct), { bold: true });
+    if (v.totalIsWeak) doc.para('Total kilometres were not taken from odometer readings for this vehicle; the total reflects logged trips only.');
+  }
+  if (k.vehicles.length > 1) {
+    doc.h2('All vehicles');
+    doc.kv('Total kilometres', `${num(k.total)} km`);
+    doc.kv('Total business kilometres', `${num(k.business)} km`);
+    doc.kv('Total personal kilometres', `${num(k.personal)} km`);
+    doc.kv('Business-use percentage', pct(k.pct));
+  }
+  const w = mileageWarnings(year);
+  if (w.length) { doc.h2('Record checks'); for (const x of w) doc.para(`- ${x}`); }
+  return doc.build();
+}
+
+export function exportMileagePdf(year = state.settings.year) {
+  download(`taxtrack-${year}-mileage-log.pdf`, buildMileagePdf(year));
 }
 
 export function exportPdf(year = state.settings.year) {

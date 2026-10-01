@@ -1,14 +1,14 @@
 // Screens: tax estimate, year-end review, expense reference, export, settings.
 
 import { state, all, yearSettings, saveSettings, importAll, resetAll, defaultSettings } from './store.js';
-import { summary, reviewReasons, inYear } from './calc.js';
+import { summary, reviewReasons, inYear, mileageWarnings } from './calc.js';
 import { head, stat } from './views.js';
 import { expenseForm } from './forms.js';
 import { openForm, confirmDialog, toast, modal } from './ui.js';
 import { CATALOG, CATEGORIES, LINKS, VERIFY, lookup, LARGE_PURCHASE, OUTCOMES, CHECKED } from './reference.js';
 import { assetName } from './cca.js';
 import { PROVINCES, RATES, RATE_SOURCES, ratesFor } from './tax-rates.js';
-import { CSV, exportCsv, exportAllCsv, exportPdf, exportBackup } from './export.js';
+import { CSV, exportCsv, exportAllCsv, exportPdf, exportMileagePdf, exportBackup } from './export.js';
 import { setPin, clearPin } from './lock.js';
 import { byId, isDue } from './store.js';
 import { $, $$, esc, money, num, pct, fmtDate } from './util.js';
@@ -43,6 +43,7 @@ export function tax(root) {
       ${line('Estimated deductible vehicle expenses', `&minus; ${money(s.exp.vehicleEst)}`)}
       ${line('Estimated other deductible expenses', `&minus; ${money(s.exp.otherEst)}`)}
       ${s.cca.rows.length ? line(`Estimated vehicle CCA, business share${state.settings.includeCca === false ? ' (not counted - Settings)' : ''}`, `&minus; ${money(s.cca.counted)}`) : ''}
+      ${s.equip.rows.length ? line(`Estimated equipment &amp; technology (current expenses + CCA${state.settings.includeCca === false ? ' not counted' : ''})`, `&minus; ${money(s.equip.counted)}`) : ''}
       ${line('Estimated net business income', money(s.net), 'total')}
       ${line('Other employment + other taxable income', `+ ${money((a.otherEmployment || 0) + (a.otherIncome || 0))}`)}
       ${line('Other deductions you entered', `&minus; ${money(a.extraDeductions || 0)}`)}
@@ -110,6 +111,7 @@ export function review(root) {
   ];
   const checks = [
     [s.km.totalIsWeak, `Total kilometres for ${Y()} not entered - business-use % is based on logged trips only and is probably overstated.`, '#/trips'],
+    ...mileageWarnings(Y()).map(w => [true, w, '#/trips']),
     [s.exp.vehicleTotal > 0 && s.km.business === 0, 'You have vehicle expenses but no business trips logged. CRA expects a mileage log.', '#/trips'],
     [s.income.unconverted > 0, `${s.income.unconverted} USD payment(s) have no exchange rate and are missing from CAD totals.`, '#/income'],
     [s.income.pending.length > 0, `${s.income.pending.length} payment(s) still marked pending.`, '#/income'],
@@ -163,6 +165,10 @@ export function review(root) {
       <h2>Vehicle assets &amp; CCA <a class="link" href="#/assets">Open</a></h2>
       ${s.cca.rows.length ? s.cca.rows.map(r => line(`${esc(assetName(r.a))} &middot; ${r.c.cls ? `likely Class ${r.c.cls}` : 'class not determined'}`, r.undetermined ? 'not estimated' : `${money(r.deductible)} <small>of ${money(r.cca)} CCA at ${num(r.pct)}%</small>`)).join('') + line(`Estimated deductible CCA ${Y()}`, money(s.cca.deductible), 'total') : '<p class="empty">No vehicle assets recorded. A vehicle bought for the business is claimed through CCA, not as an expense.</p>'}
       ${s.cca.rows.length ? `<p class="muted">CCA class, first-year rule and business-use share are estimates to confirm with your accountant. ${st.includeCca === false ? 'Not included in the net income estimate (Settings).' : 'Included in the net income estimate.'}</p>` : ''}
+    </section>
+    <section class="panel">
+      <h2>Equipment &amp; technology <a class="link" href="#/techreport">Report</a></h2>
+      ${s.equip.rows.length ? line(`Purchased in ${Y()}`, money(s.equip.purchasedTotal)) + line('Current expenses (business share)', money(s.equip.current)) + line('Potential CCA (business share)', money(s.equip.cca)) + line('Items to discuss', String(s.equip.rows.filter(r => r.flags.length).length)) : '<p class="empty">No equipment recorded.</p>'}
     </section>
     <section class="panel">
       <h2>Notes for your accountant</h2>
@@ -246,7 +252,7 @@ function restoreFlow() {
 const storageNote = `<strong>Where your data is stored:</strong> only in this web browser on this device (its built-in IndexedDB storage). Nothing is uploaded to GitHub or any server, and nobody else can see it. That also means it does not sync between your phone and computer, and clearing this browser's site data or deleting the app from your home screen erases it. A backup file is the only copy outside this device.`;
 
 export function exportView(root) {
-  const counts = { income: inYear('income', Y()).length, expenses: inYear('expense', Y()).filter(e => e.group === 'other').length, vehicle: inYear('expense', Y()).filter(e => e.group === 'vehicle').length, mileage: inYear('trip', Y()).length, customers: all('customer').length, installations: inYear('installation', Y()).length, assets: all('asset').length };
+  const counts = { income: inYear('income', Y()).length, expenses: inYear('expense', Y()).filter(e => e.group === 'other').length, vehicle: inYear('expense', Y()).filter(e => e.group === 'vehicle').length, mileage: inYear('trip', Y()).length, customers: all('customer').length, installations: inYear('installation', Y()).length, assets: all('asset').length, equipment: all('equip').length };
   const last = state.settings.lastBackup;
   root.innerHTML = `
     ${head('Export & backup', '', `Tax year ${Y()}`)}
@@ -254,7 +260,9 @@ export function exportView(root) {
       <h2>Export for accountant</h2>
       <p class="muted">Review the <a href="#/review">year-end review</a> first. Every row carries its record ID so figures can be traced back.</p>
       <div class="btn-list">
-        <button class="btn primary" data-act="pdf">PDF year-end summary</button>
+        <a class="btn primary" href="#/cra">Prepare my taxes (full package)</a>
+        <button class="btn" data-act="pdf">PDF year-end summary</button>
+        <button class="btn" data-act="mileage-pdf">Mileage log PDF</button>
         <button class="btn" data-act="csv-all">All CSV files</button>
         ${Object.entries(CSV).map(([k, v]) => `<button class="btn" data-act="csv" data-id="${k}">${esc(v.label)} CSV <small>${counts[k]}</small></button>`).join('')}
       </div>
@@ -274,6 +282,7 @@ export function exportView(root) {
     const act = b.dataset.act;
     if (act === 'pdf') exportPdf(Y());
     if (act === 'csv-all') exportAllCsv(Y());
+    if (act === 'mileage-pdf') exportMileagePdf(Y());
     if (act === 'csv') exportCsv(b.dataset.id, Y());
     if (act === 'backup') { await exportBackup(); await saveSettings(); toast('Backup downloaded.'); }
     if (act === 'restore') restoreFlow();
@@ -356,18 +365,20 @@ export function settings(root) {
       ${text('vehicles', 'Vehicles', s.vehicles.join(', '), 'Separate more than one with commas.')}
       ${select('defaultVehicle', 'Default vehicle', s.vehicles.map(v => [v, v]), s.defaultVehicle)}
       <label class="f half"><span>Usual starting location</span><input type="text" data-s="homeBase" value="${esc(s.homeBase)}"></label>
-      ${number('y.odoStart', `Odometer at start of ${Y()}`, ys.odoStart)}
-      ${number('y.odoEnd', `Odometer at end of ${Y()}`, ys.odoEnd)}
-      ${number('y.totalKm', `Total km driven in ${Y()}`, ys.totalKm, 'Overrides the odometer readings.')}
-      ${number('y.bizKmOverride', `Business km in ${Y()}`, ys.bizKmOverride, 'Leave blank to use your trip log.')}
-    </div></section>
+      <label class="f half"><span>Office / second starting location</span><input type="text" data-s="officeBase" value="${esc(s.officeBase || '')}"></label>
+      <label class="check f"><input type="checkbox" data-s="gpsEnabled"${s.gpsEnabled ? ' checked' : ''}><span>Offer GPS distance when I start a trip</span></label>
+      <small class="f">Off by default. Location is read only while a trip is running and the app is open on screen, only to add up distance. No coordinates or routes are saved, and nothing leaves this device. You can still untick GPS on any trip.</small>
+    </div>
+    <div class="btn-list"><a class="btn" href="#/trips">Vehicle odometers &amp; year totals</a></div>
+    <p class="muted">Each vehicle keeps its own odometer and business-use % on the Mileage page. Renaming a vehicle here moves its trips and expenses to your default vehicle, so add new vehicles rather than renaming.</p>
+    </section>
 
     <section class="panel"><h2>Estimate assumptions</h2><div class="fields">
       ${number('mealsPct', 'Meals & entertainment counted at (%)', s.mealsPct, 'CRA generally limits meals to 50%.')}
       <label class="check f"><input type="checkbox" data-s="includeEquipment"${s.includeEquipment ? ' checked' : ''}><span>Count equipment purchases as current-year expenses in the estimate</span></label>
       <small class="f">Off by default: equipment is usually claimed gradually (CCA), which your accountant calculates.</small>
-      <label class="check f"><input type="checkbox" data-s="includeCca"${s.includeCca === false ? '' : ' checked'}><span>Count estimated vehicle CCA (business share) in the estimate</span></label>
-      <small class="f">Applies to vehicles recorded under Vehicle assets &amp; CCA. Turn off for a more cautious set-aside.</small>
+      <label class="check f"><input type="checkbox" data-s="includeCca"${s.includeCca === false ? '' : ' checked'}><span>Count estimated CCA (business share) in the estimate</span></label>
+      <small class="f">Applies to vehicles under Vehicle assets &amp; CCA and to capital items under Equipment &amp; technology. Turn off for a more cautious set-aside.</small>
       <label class="check f"><input type="checkbox" data-s="homeOffice.qualifies"${s.homeOffice.qualifies ? ' checked' : ''}><span>I qualify to claim home-office expenses</span></label>
       <small class="f">Tick only if your home work space is your principal place of business, or is used only to earn business income and regularly to meet clients. If unsure, leave it off and ask your accountant. <a href="${LINKS.home}" target="_blank" rel="noopener">Verify current CRA rules</a></small>
       ${number('homeOffice.pct', 'Work space as % of home', s.homeOffice.pct, 'Pre-fills the business-use % on home-office expenses.')}
