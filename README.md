@@ -56,6 +56,10 @@ The 2026 table was taken from canada.ca on 2026-10-01. Quebec is not modelled; O
 
 `js/cca.js` holds the CCA classes and rates, the passenger-vehicle cost limit by year, the zero-emission limit and the first-year rule in `CCA_RULES`, plus the date they were last checked. Add each year's cost limit when it is announced (2026 was not confirmed on 2026-10-01, so the 2025 limit is used and flagged). The likely class comes from CRA's vehicle definitions chart; when the answers the chart needs are missing, the app says so instead of guessing.
 
+### Updating equipment rules
+
+`js/equip.js` holds the equipment categories, the likely CCA class for each (50, 8, 12, 46) and the rates in `EQUIP_RULES`. Items the rules cannot place get no class and the app says so. Accessories and similar items under `smallCost` ($200) are treated as likely current expenses; that cut-off is the app's own working threshold, not a CRA rule, and can be changed there.
+
 ### Updating expense guidance
 
 `js/reference.js` holds the expense categories, warnings, documentation reminders, CRA links and the "Could I write this off?" catalogue. Edit the text there; the forms, review and reference screens all read from it.
@@ -69,6 +73,17 @@ The 2026 table was taken from canada.ca on 2026-10-01. Quebec is not modelled; O
 - **In the estimate only**: meals count at 50% (changeable), equipment is left out as a likely capital item, home-office costs are left out unless you confirm in Settings that you qualify.
 - **Set-aside estimate** = estimated federal + provincial income tax + CPP on self-employment income, less tax you say you already paid. It applies only the basic personal amount and CPP; see the Tax estimate screen for what it leaves out.
 
+## Mileage and GPS
+
+- Trips can be entered by kilometres or by odometer readings (the most reliable record), or started and stopped live.
+- GPS is off by default and optional per trip. A web app can read location only while it is open on screen, so if the phone locks or you switch apps the measured distance will be short; the trip is then flagged and you confirm the distance or enter the odometer. Only the distance is kept: no coordinates or routes are stored or sent anywhere.
+- Automatic trip detection is not possible from a web app (no background location) and is not offered.
+- Each vehicle has its own trips, odometer readings and business-use %, and its expenses use its own percentage.
+
+## CRA and filing
+
+The app does not file returns and never connects to the CRA or asks for CRA sign-in details. CRA accepts electronically filed personal returns only from NETFILE-certified software. **CRA / Tax filing > Prepare My Taxes** produces a package (PDF organised by T2125 section, an Excel workbook, the mileage log and CSV files) to enter into certified software or give to an accountant. `buildPackage(year)` in `js/cra.js` returns the whole package as one data object, which is where an official integration would connect if CRA ever offers one.
+
 ## Record links (no double counting)
 
 Every record has a unique ID. Records created by another record store where they came from:
@@ -77,6 +92,8 @@ Every record has a unique ID. Records created by another record store where they
 Installation --> Income record (payment)    sourceType: installation
              --> Trip record (travel km)     sourceType: installation
 Recurring    --> Income record per month     sourceType: recurring, period: YYYY-MM
+Subscription --> Expense record per payment  sourceType: subscription, period: YYYY-MM
+Equipment and vehicle assets are their own records and are never also entered as expenses.
 ```
 
 Linked income and trips are edited through their installation, so the payment and kilometres exist once. Recurring schedules only produce *expected* payments; they become income when you confirm receipt. The CSV exports include the record IDs and source IDs.
@@ -93,6 +110,11 @@ js/calc.js            totals, vehicle %, expense portions, tax estimate
 js/tax-rates.js       yearly rate tables            <- update yearly
 js/cca.js             vehicle CCA rules, classification, forecast, deduction assessment
 js/assets.js          Vehicle assets & CCA screens
+js/mileage.js         mileage tracker: Start/Stop trips, optional GPS, history, vehicles
+js/equip.js           equipment rules, likely tax treatment, CCA, subscriptions <- update when rules change
+js/equipment.js       Equipment & technology screens and report
+js/cra.js             CRA / Tax filing screen and the year-end tax package
+js/xlsx.js            small built-in Excel (.xlsx) writer
 js/reference.js       categories + expense guidance <- update when rules change
 js/forms.js           add/edit forms
 js/ui.js              form builder, dialogs, receipts
@@ -109,7 +131,7 @@ dev/serve.ps1         local preview server
 ## Not included
 
 - Receipt OCR. Reading totals from photos needs a large third-party library or an online service; receipts are attached as photos and you type the details.
-- Capital cost allowance for equipment (vehicles are covered under Vehicle assets & CCA), recapture or terminal loss when a vehicle is sold, GST/HST tracking and filing, and anything for Quebec provincial tax.
+- Recapture or terminal loss when a vehicle or equipment is sold, automatic trip detection, direct filing with the CRA, GST/HST tracking and filing, and anything for Quebec provincial tax.
 
 ## Disclaimer
 
