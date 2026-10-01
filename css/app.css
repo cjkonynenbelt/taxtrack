@@ -122,7 +122,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
   font-size: 1.02rem; font-weight: 700; cursor: pointer; letter-spacing: 0.01em;
 }
 .quick-btn:active { opacity: 0.85; }
-@media (min-width: 700px) { .quick { grid-template-columns: repeat(4, 1fr); } }
+.quick > .quick-btn:last-child:nth-child(odd) { grid-column: 1 / -1; }
+@media (min-width: 700px) { .quick { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); } .quick > .quick-btn:last-child:nth-child(odd) { grid-column: auto; } }
+.reasons { margin-top: 10px; color: var(--muted); }
 
 /* ---- numbers ---- */
 .stats { display: grid; grid-template-columns: 1fr; gap: 12px; }
@@ -281,6 +283,28 @@ details.more > summary, .filters summary { cursor: pointer; padding: 10px 0; fon
 @media (min-width: 700px) { .dl { grid-template-columns: 190px 1fr; gap: 6px 12px; } .dl dt { margin-top: 0; font-size: 0.85rem; } }
 ul.plain { margin: 0 0 10px; padding-left: 18px; font-size: 0.9rem; }
 ul.plain li { margin-bottom: 6px; }
+
+/* ---- mileage ---- */
+.quick-btn.start { background: var(--ink); color: var(--bg); min-height: 76px; font-size: 1.15rem; }
+.quick-btn.alt { background: var(--surface); color: var(--ink); border: 1px solid var(--line); min-height: 56px; font-size: 0.93rem; }
+.quick.three { grid-template-columns: 1fr 1fr; }
+.quick.three .start { grid-column: 1 / -1; }
+.quick.three > .quick-btn:last-child { grid-column: auto; }
+@media (min-width: 700px) { .quick.three { grid-template-columns: 2fr 1fr 1fr; } .quick.three .start { grid-column: auto; } }
+.live { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 8px 8px 12px; margin-bottom: 12px; background: var(--ink); color: var(--bg); border-radius: var(--radius); font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+.live .btn { background: var(--danger); border-color: var(--danger); color: #fff; }
+.th-sort { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.table.history td { white-space: normal; }
+.table.history td:nth-child(5), .table.history th:nth-child(5) { text-align: right; white-space: nowrap; }
+.table.history td:nth-child(1) { white-space: nowrap; }
+.table.history th, .table.history td { text-align: left; }
+.vehicle { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
+.vehicle:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
+input[type=time] { width: 100%; min-height: 46px; padding: 9px 11px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); font-size: 16px; }
+
+ul.checklist { list-style: none; padding-left: 0; }
+ul.checklist li.ok strong { color: var(--accent); }
+ul.checklist li.todo strong { color: var(--warn); }
 
 /* ---- deduction answers ---- */
 .answer { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; margin-bottom: 12px; border-left: 4px solid var(--warn); background: var(--warn-soft); border-radius: var(--radius); }
