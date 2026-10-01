@@ -3,6 +3,7 @@
 import { state, all, customerName, exportAll, yearSettings } from './store.js';
 import { summary, inYear, cadOf, expenseParts, reviewReasons, customerTotals } from './calc.js';
 import { Pdf } from './pdf.js';
+import { schedule, assetName } from './cca.js';
 import { download, money, num, pct, MONTHS, today, fmtDate } from './util.js';
 
 const cell = v => {
@@ -73,6 +74,19 @@ export const CSV = {
         byDate(inYear('installation', year)).map(i => [i.id, i.date, customerName(i.customerId), i.address, i.amount, i.currency, yn(i.paid), i.paidDate, i.cadAmount, i.km, i.incomeId, i.tripId, i.notes]));
     },
   },
+  assets: {
+    label: 'Vehicle assets & CCA',
+    build(year) {
+      const rows = [];
+      for (const a of all('asset')) {
+        const s = schedule(a, year);
+        const base = [a.id, a.status === 'potential' ? 'Potential (not purchased)' : 'Owned', assetName(a), a.vehicleType, a.condition, a.vin, a.purchaseDate, a.price, a.salesTax, s.c.capitalCost, s.c.cls ? `Class ${s.c.cls} (likely - verify)` : 'Not determined', a.businessPct, a.payment, a.loanAmount, a.businessPurpose];
+        if (a.status === 'potential' || !s.rows.length) rows.push([...base, '', '', '', '', '', '', yn(a.receiptId), a.notes]);
+        for (const r of s.rows) rows.push([...base, r.year, r.open, r.cca, r.pct, r.deductible, r.close, yn(a.receiptId), a.notes]);
+      }
+      return toCsv(['Record ID', 'Status', 'Vehicle', 'Type', 'New/used', 'VIN', 'Purchase date', 'Price', 'Sales tax', 'Capital cost for CCA', 'CCA class', 'Business-use % (default)', 'Payment', 'Loan amount', 'Business purpose', 'Tax year', 'Opening UCC', 'CCA (estimate)', 'Business-use % that year', 'Deductible CCA (estimate)', 'Closing UCC', 'Has purchase document', 'Notes'], rows);
+    },
+  },
 };
 
 export function exportCsv(key, year = state.settings.year) {
@@ -135,6 +149,15 @@ export function buildPdf(year = state.settings.year) {
   doc.table([{ label: 'Vehicle expense category', width: 0.7 }, { label: 'Total (CAD)', width: 0.3, align: 'right' }],
     Object.entries(s.exp.vehicleByCategory).sort((a, c) => c[1] - a[1]).map(([k, v]) => [k, $(v)]));
 
+  if (s.cca.rows.length) {
+    doc.h2('Vehicle capital assets and CCA (estimates)');
+    doc.table([{ label: 'Vehicle', width: 0.28 }, { label: 'Class (likely)', width: 0.14 }, { label: 'Opening UCC', width: 0.15, align: 'right' }, { label: 'CCA', width: 0.13, align: 'right' }, { label: 'Bus. %', width: 0.08, align: 'right' }, { label: 'Deductible', width: 0.11, align: 'right' }, { label: 'Closing UCC', width: 0.11, align: 'right' }],
+      s.cca.rows.map(r => r.undetermined
+        ? [assetName(r.a), 'Not determined', '', '', '', '', '']
+        : [assetName(r.a), `Class ${r.c.cls}`, $(r.open), $(r.cca), `${num(r.pct)}%`, $(r.deductible), $(r.close)]));
+    doc.para(`Estimated deductible CCA ${year}: ${$(s.cca.deductible)} (${state.settings.includeCca === false ? 'not included' : 'included'} in estimated net business income). CCA class is a likely treatment from CRA's vehicle definitions chart and the first-year rule is the owner's selection; both to be confirmed.`);
+  }
+
   doc.h2('Other business expenses by category');
   doc.table([{ label: 'Category', width: 0.4 }, { label: 'Total paid', width: 0.2, align: 'right' }, { label: 'Business portion', width: 0.2, align: 'right' }, { label: 'In estimate', width: 0.2, align: 'right' }],
     Object.entries(s.exp.byCategory).sort((a, c) => c[1].total - a[1].total).map(([k, v]) => [k, $(v.total), $(v.portion), $(v.est)]));
@@ -143,6 +166,7 @@ export function buildPdf(year = state.settings.year) {
   doc.h2('Tax estimate (not an official calculation)');
   doc.kv('Gross business income', $(s.income.cad));
   doc.kv('Estimated deductible business expenses', $(s.exp.est));
+  if (s.cca.rows.length) doc.kv('Estimated vehicle CCA counted (business share)', $(s.cca.counted));
   doc.kv('Estimated net business income', $(s.net), { bold: true });
   doc.kv('Other employment income (assumption)', $(t.assumptions.otherEmployment || 0));
   doc.kv('Other taxable income (assumption)', $(t.assumptions.otherIncome || 0));

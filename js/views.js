@@ -490,6 +490,7 @@ export function more(root) {
     ['installations', 'Installations', 'Installs with linked payment and travel'],
     ['recurring', 'Recurring income', 'Expected monthly commissions to confirm'],
     ['months', 'Monthly payouts', 'Month-by-month income and expenses'],
+    ['assets', 'Vehicle assets & CCA', 'Vehicle purchases, CCA, cost forecast and "Can I deduct this?"'],
     ['tax', 'Tax estimate', 'Estimated amount to set aside'],
     ['review', 'Year-end review', 'Summary and expenses to discuss with your accountant'],
     ['reference', 'Could I write this off?', 'Potential business expenses and what to keep'],

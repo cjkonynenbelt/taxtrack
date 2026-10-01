@@ -3,6 +3,7 @@
 import { state, all, yearSettings, customerName, expectedPayments } from './store.js';
 import { CATEGORIES, LARGE_PURCHASE } from './reference.js';
 import { ratesFor, PROVINCES } from './tax-rates.js';
+import { schedule, purchaseYear } from './cca.js';
 import { yearOf, monthOf, round2, sum } from './util.js';
 
 export const inYear = (kind, year) => all(kind).filter(r => yearOf(r.date) === year);
@@ -73,6 +74,23 @@ export function reviewReasons(e) {
   return out;
 }
 
+// ---- vehicle capital cost allowance ----------------------------------------
+
+// Estimated CCA for owned vehicle assets in a year. `counted` is what goes
+// into the net-income estimate (zero when switched off in Settings).
+export function ccaSummary(year) {
+  const rows = [];
+  for (const a of all('asset')) {
+    if (a.status === 'potential') continue;
+    const s = schedule(a, year);
+    const r = s.rows.find(x => x.year === year);
+    if (r) rows.push({ a, c: s.c, ...r });
+    else if (!s.c.cls && purchaseYear(a) && purchaseYear(a) <= year) rows.push({ a, c: s.c, undetermined: true, deductible: 0, cca: 0 });
+  }
+  const deductible = round2(sum(rows, r => r.deductible));
+  return { rows, deductible, counted: state.settings.includeCca === false ? 0 : deductible, undetermined: rows.filter(r => r.undetermined).length };
+}
+
 // ---- year summary ----------------------------------------------------------
 
 export function summary(year = state.settings.year) {
@@ -125,8 +143,9 @@ export function summary(year = state.settings.year) {
   exp.businessTotal = exp.vehicleTotal + exp.otherPortion; // recorded business expenses before limits
   exp.est = exp.vehicleEst + exp.otherEst;
 
-  const net = inc.cad - exp.est;
-  return { year, km, income: inc, exp, net, tax: taxEstimate(year, net), expected: expectedPayments(year) };
+  const cca = ccaSummary(year);
+  const net = inc.cad - exp.est - cca.counted;
+  return { year, km, income: inc, exp, cca, net, tax: taxEstimate(year, net), expected: expectedPayments(year) };
 }
 
 // ---- month view ------------------------------------------------------------

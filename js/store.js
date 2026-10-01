@@ -11,12 +11,12 @@
 import * as db from './db.js';
 import { uid, today, round2 } from './util.js';
 
-export const KINDS = ['income', 'expense', 'trip', 'customer', 'installation', 'recurring'];
-const PREFIX = { income: 'INC', expense: 'EXP', trip: 'TRP', customer: 'CUS', installation: 'INS', recurring: 'REC', receipt: 'RCT' };
+export const KINDS = ['income', 'expense', 'trip', 'customer', 'installation', 'recurring', 'asset'];
+const PREFIX = { income: 'INC', expense: 'EXP', trip: 'TRP', customer: 'CUS', installation: 'INS', recurring: 'REC', asset: 'AST', receipt: 'RCT' };
 
 export const state = {
   settings: null,
-  data: { income: [], expense: [], trip: [], customer: [], installation: [], recurring: [] },
+  data: { income: [], expense: [], trip: [], customer: [], installation: [], recurring: [], asset: [] },
 };
 
 const listeners = new Set();
@@ -34,6 +34,7 @@ export function defaultSettings() {
     theme: 'auto',
     mealsPct: 50,                 // estimated allowable share of meals & entertainment
     includeEquipment: false,      // count equipment purchases as current-year expenses in the estimate
+    includeCca: true,             // count estimated vehicle CCA (business share) in the estimate
     homeOffice: { qualifies: false, pct: 0 },
     business: { name: '', owner: '', number: '', address: '' },
     lock: { enabled: false, salt: '', hash: '' },

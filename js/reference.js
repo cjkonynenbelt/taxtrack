@@ -17,7 +17,8 @@ export const LINKS = {
 };
 const anchor = a => `${LINKS.expenses}#${a}`;
 
-export const VERIFY = 'Verify the current CRA rules or ask your accountant before claiming.';
+export const CHECKED = '2026-10-01'; // date the rule summaries in this file were last checked against CRA pages
+export const VERIFY ='Verify the current CRA rules or ask your accountant before claiming.';
 export const POTENTIAL = 'Potentially deductible depending on your circumstances.';
 
 export const INCOME_TYPES = ['Monthly residual/commission', 'Installation payment', 'Sales commission', 'Bonus', 'Other business income'];
@@ -64,10 +65,30 @@ export const LARGE_PURCHASE = 500; // flag single expenses at or above this for 
 // ---- Potential Business Expenses catalogue --------------------------------
 // item: [name, extra search keywords, app category, overrides]
 
-const G = (title, base, items) => ({ title, base, items: items.map(([name, keys, category, o]) => ({ name, keys: keys || '', category, ...base, ...(o || {}) })) });
+// Answer-format details per group for "Could I write this off?":
+//   outcome   - likely | review | not   (preliminary answer)
+//   treat     - how it may be treated
+//   changes   - what could change the answer
+//   practical - plain-language reasonableness check (never "buy it for the deduction")
+export const OUTCOMES = { likely: 'LIKELY ELIGIBLE', review: 'POTENTIALLY ELIGIBLE — REVIEW', not: 'LIKELY PERSONAL / NOT ELIGIBLE' };
+const ANSWERS = {
+  'Vehicle & travel': { outcome: 'review', treat: 'Partially deductible: a current expense claimed in proportion to business kilometres. The vehicle itself is a capital asset (CCA).', changes: ['Personal use of the vehicle', 'No mileage log to support the business-use %', 'Limits on interest and lease costs for passenger vehicles'], practical: 'Running a vehicle is a normal cost of visiting customers and doing installations. The business share is only as strong as your mileage log.' },
+  'Phone & communication': { outcome: 'review', treat: 'Partially deductible current expense: only the share that reasonably relates to earning business income.', changes: ['How much of the use is personal', 'Whether you can show how you worked out the percentage', 'The device itself is a capital item, not part of the plan cost'], practical: 'A phone and internet are clearly needed for sales work, but almost everyone also uses them personally. Pick a percentage you could explain.' },
+  'Home office': { outcome: 'review', treat: 'Partially deductible and subject to special limits: only the work-space share, only if you meet the conditions, and it cannot create or increase a loss.', changes: ['Whether the space is your principal place of business', 'Whether the space is used only for business', 'Your net business income for the year'], practical: 'Reasonable if you genuinely run the business from a dedicated space at home. If you mostly work on the road and from a shared room, it may not qualify.' },
+  'Sales & marketing': { outcome: 'likely', treat: 'Current expense, generally deductible in full when it is solely to promote the business.', changes: ['Any personal element', 'Gifts or entertainment (50% limit)', 'Large one-time costs such as building a website may be capital'], practical: 'Promotion aimed at winning customers is a normal business cost. Judge it by whether it brings in business, not by the deduction.' },
+  'Technology & equipment': { outcome: 'review', treat: 'Capital asset: usually claimed over several years through capital cost allowance (CCA), by business-use share. Subscriptions are current expenses.', changes: ['Personal use of the device', 'Cost and expected life of the item (small items may be supplies)', 'First-year CCA rules for the tax year'], practical: 'Reasonable if you need it to do the work. Buying more than the job needs costs you real money; only part comes back through tax, over time.' },
+  'Professional services & banking': { outcome: 'likely', treat: 'Current expense, generally deductible in full when it relates to the business.', changes: ['Fees tied to buying a capital asset are added to that asset\'s cost', 'Personal banking or personal tax matters mixed in', 'Interest must be on money borrowed for the business'], practical: 'Ordinary costs of running a business. Keep business banking separate from personal to make these easy to support.' },
+  'Training & education': { outcome: 'review', treat: 'Current expense if it maintains or improves skills for your existing business; not deductible if it qualifies you for a new line of work.', changes: ['Whether it relates to your current business', 'Conventions: limited to two a year', 'Meals included in fees (50% limit)'], practical: 'Reasonable when the training directly helps you sell or install what you already sell. General self-improvement is harder to support.' },
+  'Office expenses': { outcome: 'likely', treat: 'Current expense, generally deductible in full for small consumable items used in the business.', changes: ['Lasting items (furniture, equipment) are capital', 'Personal or household use'], practical: 'Small supplies for the business are straightforward. Keep the receipts.' },
+  'Meals & entertainment': { outcome: 'review', treat: 'Subject to special limits: generally only 50% of a reasonable amount is deductible.', changes: ['No record of who you met and why', 'Meals that are really personal', 'Amounts that are not reasonable'], practical: 'Meeting a customer or prospect over a meal is a normal sales cost. Your own everyday lunches are not.' },
+  'Insurance & professional costs': { outcome: 'likely', treat: 'Current expense, generally deductible when the policy, licence or membership is for the business.', changes: ['Personal or life insurance', 'Club dues mainly for dining, recreation or sport', 'Prepaid amounts covering a later year'], practical: 'Reasonable when required or clearly useful for operating the business.' },
+  'Clothing': { outcome: 'not', treat: 'Personal / non-deductible in most cases. Protective gear required for the work is treated differently.', changes: ['Whether the item is protective equipment needed for the job', 'Whether it could be worn as everyday clothing'], practical: 'Clothes you could wear outside work are a personal cost even if you bought them for the job.' },
+};
+
+const G = (title, base, items) => ({ title, base, items: items.map(([name, keys, category, o]) => ({ name, keys: keys || '', category, ...ANSWERS[title], ...base, ...(o || {}) })) });
 
 const vehicleBase = { status: POTENTIAL, pct: 'Business km ÷ total km for the year', special: 'Claimed in proportion to business use. Needs a mileage log.', docs: VEHICLE_INFO.docs, link: LINKS.vehicle, group: 'vehicle' };
-const travelBase = { status: POTENTIAL, pct: '100% if the trip is entirely for business', special: 'Personal days or side trips are not business travel.', docs: CATEGORIES['Travel'].docs, link: anchor('trvl') };
+const travelBase = { status: POTENTIAL, pct: '100% if the trip is entirely for business', special: 'Personal days or side trips are not business travel.', outcome: 'review', treat: 'Current expense for the business part of the trip. Meals while travelling fall under the 50% limit.', changes: ['Personal days or side trips mixed into the trip', 'No record of the business reason for travelling', 'Meals and entertainment included in the cost'], practical: 'Reasonable when the trip is needed to reach a customer, an installation or training. A trip that is mostly personal is not business travel.', docs: CATEGORIES['Travel'].docs, link: anchor('trvl') };
 
 export const CATALOG = [
   G('Vehicle & travel', vehicleBase, [
@@ -83,7 +104,7 @@ export const CATALOG = [
     ['Car washes', 'wash detailing', 'Car washes'],
     ['Vehicle financing interest', 'car loan interest', 'Financing interest', { special: 'Interest on a passenger vehicle loan is capped by a prescribed daily limit, then prorated by business use.' }],
     ['Vehicle lease payments', 'lease', 'Lease payments', { special: 'Leasing costs for passenger vehicles are capped by a prescribed monthly limit, then prorated by business use.' }],
-    ['Vehicle depreciation (CCA)', 'depreciation capital cost allowance car purchase truck', null, { special: 'The vehicle itself is not expensed. Capital cost allowance may be claimable; passenger vehicles have a prescribed cost ceiling. Have your accountant calculate it.', link: LINKS.cca }],
+    ['Buying a vehicle (truck, car, van, SUV)', 'new used truck pickup car van suv vehicle purchase buy depreciation capital cost allowance cca', null, { asset: true, treat: 'Capital asset: the purchase price is not a current expense. It is claimed gradually as capital cost allowance (CCA), by business-use share.', special: 'The vehicle itself is not expensed. CCA class and cost limits depend on the vehicle type and how it is used. Record it under Vehicle assets & CCA for a likely class, a CCA schedule and a cost forecast.', changes: ['Vehicle classification (motor vehicle vs passenger vehicle)', 'Business-use percentage and personal use', 'Passenger-vehicle cost limit for the year', 'Financing (interest limit)'], practical: 'A vehicle can be necessary for sales calls and installations, but it is a large cash cost that comes back through tax only slowly and partly. Test it with a potential purchase first.', docs: ['Purchase agreement', 'Proof of payment', 'Mileage log', 'Odometer at purchase and each year-end'], link: LINKS.cca }],
     ['Public transportation', 'bus train transit ctrain', 'Travel', { ...travelBase, group: 'other' }],
     ['Taxi / rideshare', 'uber lyft cab', 'Travel', { ...travelBase, group: 'other' }],
     ['Hotels / accommodation', 'hotel motel airbnb lodging', 'Travel', { ...travelBase, group: 'other' }],

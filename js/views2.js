@@ -5,7 +5,8 @@ import { summary, reviewReasons, inYear } from './calc.js';
 import { head, stat } from './views.js';
 import { expenseForm } from './forms.js';
 import { openForm, confirmDialog, toast, modal } from './ui.js';
-import { CATALOG, CATEGORIES, LINKS, VERIFY, lookup, LARGE_PURCHASE } from './reference.js';
+import { CATALOG, CATEGORIES, LINKS, VERIFY, lookup, LARGE_PURCHASE, OUTCOMES, CHECKED } from './reference.js';
+import { assetName } from './cca.js';
 import { PROVINCES, RATES, RATE_SOURCES, ratesFor } from './tax-rates.js';
 import { CSV, exportCsv, exportAllCsv, exportPdf, exportBackup } from './export.js';
 import { setPin, clearPin } from './lock.js';
@@ -41,6 +42,7 @@ export function tax(root) {
       ${line('Gross business income (received, CAD)', money(s.income.cad))}
       ${line('Estimated deductible vehicle expenses', `&minus; ${money(s.exp.vehicleEst)}`)}
       ${line('Estimated other deductible expenses', `&minus; ${money(s.exp.otherEst)}`)}
+      ${s.cca.rows.length ? line(`Estimated vehicle CCA, business share${state.settings.includeCca === false ? ' (not counted - Settings)' : ''}`, `&minus; ${money(s.cca.counted)}`) : ''}
       ${line('Estimated net business income', money(s.net), 'total')}
       ${line('Other employment + other taxable income', `+ ${money((a.otherEmployment || 0) + (a.otherIncome || 0))}`)}
       ${line('Other deductions you entered', `&minus; ${money(a.extraDeductions || 0)}`)}
@@ -71,7 +73,7 @@ export function tax(root) {
       <h2>What this estimate leaves out</h2>
       <ul class="plain">
         <li>Most personal credits and deductions (only the basic personal amount and CPP are applied).</li>
-        <li>Capital cost allowance on your vehicle and equipment, which could lower your net income.</li>
+        <li>Capital cost allowance on equipment, and on any vehicle not recorded under <a href="#/assets">Vehicle assets &amp; CCA</a>.</li>
         <li>GST/HST. If your revenue passes $30,000 over four consecutive quarters you may need to register - ask your accountant how this applies to services billed to a U.S. company.</li>
         <li>Provincial surtaxes, health premiums, and EI.</li>
         <li>Instalment requirements. CRA may ask for quarterly instalments (March 15, June 15, September 15, December 15).</li>
@@ -155,7 +157,12 @@ export function review(root) {
           ${items.map(x => `<button class="row" data-act="edit" data-id="${x.e.id}"><span class="row-main"><span class="row-title">${esc(x.e.vendor || x.e.category)}</span><span class="row-sub">${fmtDate(x.e.date)} &middot; ${esc(x.e.category)} &middot; ${esc(x.note)}${x.e.receiptId ? '' : ' &middot; no receipt'}</span></span><span class="row-amt"><strong>${x.cad == null ? 'no rate' : money(x.cad)}</strong><small>est. ${money(x.est)}</small></span></button>`).join('')}
         </details>`;
       }).join('') || '<p class="empty">Nothing flagged.</p>'}
-      ${s.exp.vehicleTotal > 0 ? `<p class="muted">Vehicle: all ${money(s.exp.vehicleTotal)} of vehicle expenses depend on your mileage log and business-use percentage. Vehicle depreciation (CCA) is not calculated here.</p>` : ''}
+      ${s.exp.vehicleTotal > 0 ? `<p class="muted">Vehicle: all ${money(s.exp.vehicleTotal)} of vehicle expenses depend on your mileage log and business-use percentage.</p>` : ''}
+    </section>
+    <section class="panel">
+      <h2>Vehicle assets &amp; CCA <a class="link" href="#/assets">Open</a></h2>
+      ${s.cca.rows.length ? s.cca.rows.map(r => line(`${esc(assetName(r.a))} &middot; ${r.c.cls ? `likely Class ${r.c.cls}` : 'class not determined'}`, r.undetermined ? 'not estimated' : `${money(r.deductible)} <small>of ${money(r.cca)} CCA at ${num(r.pct)}%</small>`)).join('') + line(`Estimated deductible CCA ${Y()}`, money(s.cca.deductible), 'total') : '<p class="empty">No vehicle assets recorded. A vehicle bought for the business is claimed through CCA, not as an expense.</p>'}
+      ${s.cca.rows.length ? `<p class="muted">CCA class, first-year rule and business-use share are estimates to confirm with your accountant. ${st.includeCca === false ? 'Not included in the net income estimate (Settings).' : 'Included in the net income estimate.'}</p>` : ''}
     </section>
     <section class="panel">
       <h2>Notes for your accountant</h2>
@@ -172,15 +179,18 @@ export function review(root) {
 const itemCard = (item, group) => `
   <div class="ref-card">
     <h3>${esc(item.name)}</h3>
+    <div class="answer ${item.outcome}"><span class="stat-label">Preliminary answer</span><strong class="answer-title">${OUTCOMES[item.outcome]}</strong></div>
     <dl class="dl">
-      <dt>Expense category</dt><dd>${esc(item.category ? `${item.group === 'vehicle' ? 'Vehicle: ' : ''}${item.category}` : group)}</dd>
-      <dt>Potentially business-related?</dt><dd>${esc(item.status)}</dd>
-      <dt>Possible business-use %</dt><dd>${esc(item.pct)}</dd>
-      <dt>Special rules</dt><dd>${esc(item.special)}</dd>
-      <dt>Keep</dt><dd>${item.docs.map(esc).join(' &middot; ')}</dd>
+      <dt>Why</dt><dd>${esc(item.status)} ${esc(item.special)}</dd>
+      <dt>How it may be treated</dt><dd>${esc(item.treat)}</dd>
+      <dt>Expense category</dt><dd>${esc(item.category ? `${item.group === 'vehicle' ? 'Vehicle: ' : ''}${item.category}` : group)} &middot; possible business-use: ${esc(item.pct)}</dd>
+      <dt>What I need to keep</dt><dd>${item.docs.map(esc).join(' &middot; ')}</dd>
+      <dt>What could change the answer?</dt><dd>${item.changes.map(esc).join(' &middot; ')}</dd>
+      <dt>Practical assessment</dt><dd>${esc(item.practical)}</dd>
     </dl>
-    <p class="muted">${esc(VERIFY)}</p>
+    <p class="muted">Preliminary and general - it does not know your full situation. Tax treatment last checked ${fmtDate(CHECKED)}.</p>
     <p class="ref-actions"><a class="btn small" href="${item.link}" target="_blank" rel="noopener">Verify current CRA rules</a>
+    ${item.asset ? '<a class="btn small" href="#/assets">Open Vehicle assets &amp; CCA</a>' : ''}
     ${item.category ? `<button class="btn small" data-act="record" data-group="${item.group === 'vehicle' ? 'vehicle' : 'other'}" data-cat="${esc(item.category)}">Record this expense</button>` : ''}</p>
   </div>`;
 
@@ -236,7 +246,7 @@ function restoreFlow() {
 const storageNote = `<strong>Where your data is stored:</strong> only in this web browser on this device (its built-in IndexedDB storage). Nothing is uploaded to GitHub or any server, and nobody else can see it. That also means it does not sync between your phone and computer, and clearing this browser's site data or deleting the app from your home screen erases it. A backup file is the only copy outside this device.`;
 
 export function exportView(root) {
-  const counts = { income: inYear('income', Y()).length, expenses: inYear('expense', Y()).filter(e => e.group === 'other').length, vehicle: inYear('expense', Y()).filter(e => e.group === 'vehicle').length, mileage: inYear('trip', Y()).length, customers: all('customer').length, installations: inYear('installation', Y()).length };
+  const counts = { income: inYear('income', Y()).length, expenses: inYear('expense', Y()).filter(e => e.group === 'other').length, vehicle: inYear('expense', Y()).filter(e => e.group === 'vehicle').length, mileage: inYear('trip', Y()).length, customers: all('customer').length, installations: inYear('installation', Y()).length, assets: all('asset').length };
   const last = state.settings.lastBackup;
   root.innerHTML = `
     ${head('Export & backup', '', `Tax year ${Y()}`)}
@@ -356,6 +366,8 @@ export function settings(root) {
       ${number('mealsPct', 'Meals & entertainment counted at (%)', s.mealsPct, 'CRA generally limits meals to 50%.')}
       <label class="check f"><input type="checkbox" data-s="includeEquipment"${s.includeEquipment ? ' checked' : ''}><span>Count equipment purchases as current-year expenses in the estimate</span></label>
       <small class="f">Off by default: equipment is usually claimed gradually (CCA), which your accountant calculates.</small>
+      <label class="check f"><input type="checkbox" data-s="includeCca"${s.includeCca === false ? '' : ' checked'}><span>Count estimated vehicle CCA (business share) in the estimate</span></label>
+      <small class="f">Applies to vehicles recorded under Vehicle assets &amp; CCA. Turn off for a more cautious set-aside.</small>
       <label class="check f"><input type="checkbox" data-s="homeOffice.qualifies"${s.homeOffice.qualifies ? ' checked' : ''}><span>I qualify to claim home-office expenses</span></label>
       <small class="f">Tick only if your home work space is your principal place of business, or is used only to earn business income and regularly to meet clients. If unsure, leave it off and ask your accountant. <a href="${LINKS.home}" target="_blank" rel="noopener">Verify current CRA rules</a></small>
       ${number('homeOffice.pct', 'Work space as % of home', s.homeOffice.pct, 'Pre-fills the business-use % on home-office expenses.')}
