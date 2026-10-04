@@ -210,11 +210,13 @@ export function suggestLink(merchant) {
 export function queueReasons(e) {
   const out = [];
   if (e.needsReview) out.push('Unknown business use - you marked it "not sure"');
-  if (e.scan && !e.reviewed) {
-    const low = (e.scan.low || []).filter(f => !(e.corrections || {})[f] && f !== 'overall');
-    if ((e.scan.low || []).includes('overall')) out.push('Low-confidence scan - check every figure against the receipt');
-    else if (low.length) out.push(`Scan was unsure of: ${low.join(', ')}`);
-    if (e.group !== 'vehicle' && e.category === 'Other') out.push('Uncategorized receipt');
+  if (!e.reviewed && e.use !== 'personal') {
+    if (e.scan) {
+      const low = (e.scan.low || []).filter(f => !(e.corrections || {})[f] && f !== 'overall');
+      if ((e.scan.low || []).includes('overall')) out.push('Low-confidence scan - check every figure against the receipt');
+      else if (low.length) out.push(`Scan was unsure of: ${low.join(', ')}`);
+    }
+    if (e.group !== 'vehicle' && e.category === 'Other') out.push(e.scan ? 'Uncategorized receipt' : 'Uncategorized expense');
     if (e.dupOf && byId('expense', e.dupOf)) out.push('Possible duplicate');
     if (e.group !== 'vehicle' && (CATEGORIES[e.category] || {}).capital) out.push('Possible capital asset - consider recording it under Equipment');
     if (e.currency === 'USD' && e.cadAmount == null) out.push('No exchange rate');
@@ -364,10 +366,10 @@ export function scanReceipt() {
 
 export function needsReview(root) {
   const q = reviewQueue();
-  const open = e => expenseForm(e, { title: 'Review expense', fields: scanFields(null), openAdvanced: true });
+  const open = e => expenseForm(e, { title: 'Review expense', fields: scanFields(null), openAdvanced: true, review: true });
   root.innerHTML = `
     <p><a href="#/expenses">&larr; Expenses</a></p>
-    ${head('Expenses needing review', q.length ? '<button class="btn primary" data-act="next">Review next</button>' : '', 'Scanned receipts that still need a decision. Saving an expense here, or marking it reviewed, takes it off the list.')}
+    ${head('Expenses needing review', q.length ? '<button class="btn primary" data-act="next">Review next</button>' : '', 'Expenses that still need a decision: unsure scans, uncategorized items, possible duplicates and possible capital assets. Saving an expense here, or marking it reviewed, takes it off the list.')}
     ${q.length ? q.map(({ e, reasons }) => `<div class="group">
         <div class="row static"><span class="row-main"><span class="row-title">${esc(e.vendor || e.category)}</span><span class="row-sub">${fmtDate(e.date)} &middot; ${e.group === 'vehicle' ? 'Vehicle: ' : ''}${esc(e.category)}${e.project ? ` &middot; ${esc(e.project)}` : ''}</span></span><span class="row-amt"><strong>${money(e.amount, e.currency)}</strong></span></div>
         <ul class="plain">${reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul>

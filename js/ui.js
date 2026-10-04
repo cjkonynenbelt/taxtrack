@@ -22,8 +22,10 @@ export function toast(msg) {
   const t = document.createElement('div');
   t.className = 'toast';
   t.textContent = msg;
+  t.title = 'Dismiss';
+  t.onclick = () => t.remove(); // tap to dismiss
   document.body.appendChild(t);
-  setTimeout(() => t.remove(), 3200);
+  setTimeout(() => t.remove(), msg.includes('\n') ? 4500 : 3200);
 }
 
 export function confirmDialog(message, { ok = 'Delete', danger = true, detail = '' } = {}) {

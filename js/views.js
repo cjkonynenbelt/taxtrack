@@ -1,7 +1,7 @@
 // Screens: dashboard and the record lists. Each view renders into `root`.
 
 import { state, all, byId, customerName, expectedPayments, isDue, skipExpected } from './store.js';
-import { summary, inYear, cadOf, expenseParts, kmSummary, monthSummary, customerTotals } from './calc.js';
+import { summary, inYear, cadOf, expenseParts, kmSummary, monthSummary, customerTotals, normVehicle } from './calc.js';
 import { tripForm, startTripForm, stopTripForm, activeTrip } from './mileage.js';
 import { equipForm } from './equipment.js';
 import { scanReceipt, reviewQueue } from './scan.js';
@@ -132,18 +132,116 @@ export function home(root) {
   const s = summary(Y());
   const t = s.tax;
   const hasData = s.income.count || s.exp.items.length || s.km.loggedBiz;
+
+  // Everything below is counted from the records for the selected tax year.
+  const exps = inYear('expense', Y());
+  const biz = exps.filter(e => e.use !== 'personal');
+  const queue = reviewQueue().filter(x => x.e.date.slice(0, 4) === String(Y()));
+  const queued = new Set(queue.map(x => x.e.id));
+  const deductions = s.exp.est + s.cca.counted + s.equip.counted;
+  const equipBought = s.equip.rows.filter(r => r.purchased);
+  const receipts = exps.filter(e => e.receiptId).length + equipBought.filter(r => r.e.receiptId).length;
+  const categorized = exps.filter(e => e.group === 'vehicle' || e.category !== 'Other').length;
+  const missing = biz.filter(e => !e.receiptId).length;
+  const counts = {};
+  for (const e of exps) { const k = e.category === 'Meals & entertainment' ? 'Meals' : e.category; counts[k] = (counts[k] || 0) + 1; }
+  const cats = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const chip = (n, label) => `<span class="chip"><strong>${n}</strong>${esc(label)}</span>`;
+  const reviewAmount = sum(queue, x => cadOf(x.e) || 0);
+  const capitalAmount = sum(equipBought.filter(r => r.t.kind === 'capital'), r => r.t.cost || 0)
+    + sum(biz.filter(e => e.category === 'Computer/equipment'), e => cadOf(e) || 0)
+    + sum(all('asset').filter(a => a.status !== 'potential' && String(a.purchaseDate || '').slice(0, 4) === String(Y())), a => (Number(a.price) || 0) + (Number(a.salesTax) || 0));
+  const recent = newestFirst(exps).slice(0, 5);
+  const veh = [...s.km.vehicles].sort((a, b) => b.business - a.business || b.total - a.total)[0];
+  const vehItems = s.exp.items.filter(x => x.e.group === 'vehicle' && x.e.use !== 'personal' && normVehicle(x.e.vehicle) === (veh && veh.name));
+  const reviewPct = exps.length ? (exps.length - queue.length) / exps.length : null;
+  const dupes = queue.filter(x => x.reasons.includes('Possible duplicate')).length;
+  const capitals = queue.filter(x => x.reasons.some(r => r.startsWith('Possible capital asset'))).length;
+  const dueIncome = s.expected.filter(x => isDue(x.period)).length;
+  const alerts = [
+    [queue.length, `${queue.length} expense${queue.length === 1 ? ' needs' : 's need'} review`, '#/needs-review'],
+    [s.exp.vehicleTotal > 0 && s.km.totalIsWeak, 'Vehicle expenses rely on logged trips only - enter the year\'s odometer readings', '#/trips'],
+    [missing, `${missing} business expense${missing === 1 ? ' is' : 's are'} missing a receipt`, '#/expenses'],
+    [dupes, `${dupes} possible duplicate receipt${dupes === 1 ? '' : 's'}`, '#/needs-review'],
+    [capitals, `${capitals} purchase${capitals === 1 ? '' : 's'} may be a capital asset`, '#/needs-review'],
+    [s.income.unconverted, `${s.income.unconverted} USD payment${s.income.unconverted === 1 ? '' : 's'} missing an exchange rate`, '#/income'],
+    [dueIncome, `${dueIncome} expected payment${dueIncome === 1 ? '' : 's'} to confirm`, '#/recurring'],
+  ].filter(a => a[0]);
+  const linkRow = (label, value, act) => `<button class="row" data-act="${act}"><span class="row-main"><span class="row-title">${label}</span></span><span class="row-amt"><strong>${value} &rsaquo;</strong></span></button>`;
+  const line = (l, v) => `<div class="line"><span>${l}</span><span>${v}</span></div>`;
+
   root.innerHTML = `
     <div class="page-head"><div><h1>Tax year ${Y()}</h1><p class="muted">Estimates only &mdash; not a tax filing.</p></div></div>
-    <button class="quick-btn wide start" data-act="${activeTrip() ? 'stop-trip' : 'start-trip'}">${activeTrip() ? 'STOP TRIP' : '&#128663; START TRIP'}</button>
-    <div class="quick">
-      <button class="quick-btn" data-act="add-income">+ Add Income</button>
-      <button class="quick-btn" data-act="add-trip">+ Add Trip</button>
-      <button class="quick-btn" data-act="add-expense">+ Add Expense</button>
-      <button class="quick-btn" data-act="add-install">+ Add Installation</button>
-      <button class="quick-btn" data-act="add-equip">+ Add Equipment</button>
-      <button class="quick-btn" data-act="scan">Scan Receipt</button>
+    <section class="panel dash-hero">
+      <span class="stat-label">Total potential deductions</span>
+      <span class="hero-value">${money(deductions)}</span>
+      <div class="chips">
+        ${chip(exps.length, 'Expenses')}${chip(receipts, 'Receipts')}${chip(categorized, 'Categorized')}${cats[0] ? chip(cats[0][1], cats[0][0]) : ''}
+        ${cats.length > 1 ? `<details class="chip-more"><summary>+ ${cats.length - 1} more</summary><div class="chips">${cats.slice(1).map(([k, n]) => chip(n, k)).join('')}</div></details>` : ''}
+      </div>
+    </section>
+    <div class="dash-actions">
+      <button class="quick-btn" data-act="scan">&#128247; Scan Receipt</button>
+      <button class="quick-btn alt" data-act="add-expense">+ Add Expense</button>
     </div>
+    <div class="dash-more">
+      <button class="btn small" data-act="${activeTrip() ? 'stop-trip' : 'start-trip'}">${activeTrip() ? 'Stop trip' : '&#128663; Start trip'}</button>
+      <button class="btn small" data-act="add-trip">+ Mileage</button>
+      <button class="btn small" data-act="add-income">+ Income</button>
+      <button class="btn small" data-act="add-equip">+ Asset</button>
+      <button class="btn small" data-act="add-install">+ Installation</button>
+    </div>
+    ${queue.length ? `<a class="review-row" href="#/needs-review"><strong>${queue.length} expense${queue.length === 1 ? '' : 's'} need${queue.length === 1 ? 's' : ''} review</strong><span>&rarr;</span></a>` : ''}
     ${expectedBlock(Y(), { limit: 3 })}
+    <div class="dash-grid">
+      <section class="panel">
+        <h2>Tax overview</h2>
+        ${linkRow('Potential deductions', money(deductions), 'go-deductions')}
+        ${linkRow('Needs review', money(reviewAmount), 'go-review')}
+        ${linkRow('Likely personal', money(s.exp.personalTotal), 'go-personal')}
+        ${linkRow('Potential capital assets', money(capitalAmount), 'go-capital')}
+      </section>
+      <section class="panel${alerts.length ? ' notice' : ''}">
+        <h2>${alerts.length ? 'Needs attention' : 'Everything looks good'}</h2>
+        ${alerts.length ? alerts.map(([, text, href]) => `<a class="row" href="${href}"><span class="row-main"><span class="row-title alert">${esc(text)}</span></span><span class="row-amt">&rsaquo;</span></a>`).join('') : '<p class="muted">&#10003; Your current records are organized.</p>'}
+      </section>
+      <section class="panel">
+        <h2>Recent expenses <a class="link" href="#/expenses">View all &rarr;</a></h2>
+        ${recent.length ? recent.map(e => `<button class="row" data-act="edit-expense" data-id="${e.id}">
+          <span class="datebox">${fmtDate(e.date).split(',')[0].toUpperCase()}</span>
+          <span class="row-main"><span class="row-title">${esc(e.vendor || e.category)}${queued.has(e.id) ? ' <span class="tag warn">Review</span>' : e.use === 'personal' ? ' <span class="tag">Personal</span>' : ''}</span><span class="row-sub">${e.group === 'vehicle' ? 'Vehicle / ' : ''}${esc(e.category)}</span></span>
+          <span class="row-amt"><strong>${money(e.amount, e.currency)}</strong></span></button>`).join('') : `<p class="empty">No expenses in ${Y()} yet.</p>`}
+      </section>
+      <section class="panel">
+        <h2>Receipt status</h2>
+        ${line('Receipts stored', receipts)}
+        ${line('Need review', queue.length)}
+        ${line('Business expenses missing a receipt', missing)}
+        ${line('Categorized', exps.length ? pct(categorized / exps.length, 0) : '—')}
+      </section>
+      ${veh ? `<section class="panel">
+        <h2>Vehicle <a class="link" href="#/trips">View vehicle &rarr;</a></h2>
+        <p><strong>${esc(veh.name)}</strong></p>
+        ${line('Business km', `${num(veh.business)} km`)}
+        ${line('Total km', `${num(veh.total)} km${veh.totalIsWeak && veh.total ? ' <small class="warn-text">logged trips only</small>' : ''}`)}
+        ${line('Business use', pct(veh.pct))}
+        ${line('Vehicle expenses', money(sum(vehItems, x => x.cad || 0)))}
+        ${line('Potential business portion', money(sum(vehItems, x => x.est)))}
+        ${s.km.vehicles.length > 1 ? `<p class="muted">All vehicles: ${num(s.km.business)} business km of ${num(s.km.total)} km (${pct(s.km.pct)}).</p>` : ''}
+      </section>` : ''}
+      <section class="panel">
+        <h2>${Y()} tax year</h2>
+        ${line('Income tracked', money(s.income.cad))}
+        ${line('Business expenses recorded', money(s.exp.businessTotal))}
+        ${line('Est. deductible vehicle expenses', money(s.exp.vehicleEst))}
+        ${line('Est. other deductible expenses', money(s.exp.otherEst))}
+        ${s.equip.rows.length || s.cca.rows.length ? line('Equipment &amp; vehicle CCA in the estimate', money(s.equip.counted + s.cca.counted)) : ''}
+        ${line('Potential deductions', money(deductions))}
+        ${line('Receipts', receipts)}
+        ${line('Review status', reviewPct == null ? '—' : `${pct(reviewPct, 0)} complete`)}
+        ${reviewPct == null ? '' : `<div class="progress"><span style="width:${Math.round(reviewPct * 100)}%"></span></div>`}
+      </section>
+    </div>
     <section class="panel">
       <h2>Income</h2>
       <div class="stats">
@@ -153,28 +251,11 @@ export function home(root) {
       </div>
     </section>
     <section class="panel">
-      <h2>Expenses</h2>
-      <div class="stats">
-        ${stat('Total business expenses', money(s.exp.businessTotal), 'recorded, before limits')}
-        ${stat('Est. deductible vehicle expenses', money(s.exp.vehicleEst), `${pct(s.km.pct)} of ${money(s.exp.vehicleTotal, 'CAD', 0)}`)}
-        ${stat('Est. other deductible expenses', money(s.exp.otherEst))}
-      </div>
-      ${s.equip.rows.length || s.cca.rows.length ? `<p class="muted">Also in the estimate: equipment &amp; technology ${money(s.equip.counted)} (<a href="#/equipment">open</a>)${s.cca.rows.length ? ` &middot; vehicle CCA ${money(s.cca.counted)} (<a href="#/assets">open</a>)` : ''}.</p>` : ''}
-    </section>
-    <section class="panel">
       <h2>Bottom line <a class="link" href="#/tax">Tax estimate</a></h2>
       <div class="stats">
         ${stat('Estimated net business income', money(s.net), '', 'big')}
         ${stat('Estimated income tax', money(t.incomeTax), `federal + ${esc(t.provinceName)}`)}
         ${stat('Estimated amount to save for taxes', money(t.setAside), `income tax + CPP${t.taxPaid ? ' less tax paid' : ''}`, 'big accent')}
-      </div>
-    </section>
-    <section class="panel">
-      <h2>Kilometres <a class="link" href="#/trips">Mileage</a></h2>
-      <div class="stats">
-        ${stat('Business kilometres', `${num(s.km.business)} km`)}
-        ${stat('Total kilometres', `${num(s.km.total)} km`, esc(s.km.totalSource))}
-        ${stat('Business-use percentage', pct(s.km.pct), s.km.totalIsWeak && s.km.total ? '<span class="warn-text">Enter total km for the year</span>' : '')}
       </div>
     </section>
     ${hasData ? `
@@ -190,7 +271,13 @@ export function home(root) {
       <section class="panel"><h2>USD vs CAD income <small>(CAD value)</small></h2>${splitBar({ label: 'Paid in USD', value: s.income.usdConverted }, { label: 'Paid in CAD', value: s.income.cadNative }, v => money(v, 'CAD', 0))}</section>
     </div>` : `<section class="panel"><p class="muted">No records for ${Y()} yet. Use the buttons above to add your first income, trip or expense. Charts appear here once you have data.</p></section>`}
     <p class="where muted">Your records are stored only in this browser on this device. <a href="#/export">Back up regularly</a>.</p>`;
-  wire(root, { 'start-trip': startTripForm, 'stop-trip': stopTripForm, 'add-income': () => incomeForm(), 'add-trip': () => tripForm(), 'add-expense': () => expenseForm(), 'add-install': () => installationForm(), 'add-equip': () => equipForm(), scan: scanReceipt, ...expActions });
+  wire(root, { 'start-trip': startTripForm, 'stop-trip': stopTripForm, 'add-income': () => incomeForm(), 'add-trip': () => tripForm(), 'add-expense': () => expenseForm(), 'add-install': () => installationForm(), 'add-equip': () => equipForm(), scan: scanReceipt, ...expActions,
+    'edit-expense': id => expenseForm(byId('expense', id)),
+    'go-deductions': () => { filters.expenses = { group: '' }; location.hash = '#/expenses'; },
+    'go-personal': () => { filters.expenses = { group: '', use: 'personal' }; location.hash = '#/expenses'; },
+    'go-review': () => { location.hash = '#/needs-review'; },
+    'go-capital': () => { location.hash = '#/equipment'; },
+  });
 }
 
 // ---- income ----------------------------------------------------------------

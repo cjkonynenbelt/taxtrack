@@ -185,13 +185,15 @@ export function expenseForm(rec = {}, extra = {}) {
         clean.corrections = fix;
         clean.reviewed = !v.needsReview;
       }
+      if (extra.review) clean.reviewed = !v.needsReview; // saved from the review queue
       await save('expense', {
         ...clean, ...fxFields(v), use,
         businessPct: use === 'mixed' ? v.businessPct : null,
         vehicle: isVeh(v) ? v.vehicle : null,
         customerId: await resolveCustomer(cn),
       });
-      savedNote(v.date);
+      if (!rec.id && yearOf(v.date) === state.settings.year) toast(`✓ Expense added\n${money(v.amount, v.currency)} from ${v.vendor || v.category}\nAdded to ${monthLabel(v.date.slice(0, 7))}`);
+      else savedNote(v.date);
     },
     onDelete: rec.id ? () => askDelete('expense', rec, 'expense', 'Its receipt will be deleted too.') : null,
   });
