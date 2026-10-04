@@ -44,6 +44,7 @@ function render() {
   const [name = 'home', param] = location.hash.replace(/^#\/?/, '').split('/');
   const view = routes[name] || routes.home;
   root.onclick = null;
+  document.body.classList.remove('on-home'); // the dashboard sets this for its own white background
   view(root, param ? decodeURIComponent(param) : undefined);
   const tab = TAB[name] || (routes[name] ? 'more' : 'home');
   $$('[data-tab]').forEach(a => a.classList.toggle('on', a.dataset.tab === tab || a.dataset.tab === name));
