@@ -34,18 +34,18 @@ export const CSV = {
     label: 'Other business expenses',
     build(year) {
       return toCsv(
-        ['Record ID', 'Date', 'Vendor', 'Category', 'Amount', 'Currency', 'Exchange rate', 'CAD amount', 'Classification', 'Business-use %', 'Business portion (CAD)', 'Counted in estimate (CAD)', 'Estimate note', 'GST/HST included', 'Business purpose', 'Customer', 'Has receipt', 'Review flags', 'Notes'],
+        ['Record ID', 'Date', 'Vendor', 'Category', 'Amount', 'Currency', 'Exchange rate', 'CAD amount', 'Classification', 'Business-use %', 'Business portion (CAD)', 'Counted in estimate (CAD)', 'Estimate note', 'GST/HST included', 'Business purpose', 'Customer', 'Has receipt', 'Review flags', 'Notes', 'Project', 'Receipt number', 'Scanned receipt'],
         expenseRows(year, 'other').map(({ e, p }) => [e.id, e.date, e.vendor, e.category, e.amount, e.currency, e.fxRate, p.cad, e.use,
-          e.use === 'mixed' ? e.businessPct : e.use === 'business' ? 100 : 0, p.portion, p.est, p.note, e.tax, e.purpose, customerName(e.customerId), yn(e.receiptId), reviewReasons(e).join('; '), e.notes]));
+          e.use === 'mixed' ? e.businessPct : e.use === 'business' ? 100 : 0, p.portion, p.est, p.note, e.tax, e.purpose, customerName(e.customerId), yn(e.receiptId), reviewReasons(e).join('; '), e.notes, e.project, e.scan ? e.scan.receiptNo : '', yn(e.scan)]));
     },
   },
   vehicle: {
     label: 'Vehicle expenses',
     build(year) {
       return toCsv(
-        ['Record ID', 'Date', 'Vendor', 'Category', 'Vehicle', 'Amount', 'Currency', 'Exchange rate', 'CAD amount', 'Treatment', 'Estimated business portion (CAD)', 'Estimate note', 'GST/HST included', 'Purpose', 'Has receipt', 'Notes'],
+        ['Record ID', 'Date', 'Vendor', 'Category', 'Vehicle', 'Amount', 'Currency', 'Exchange rate', 'CAD amount', 'Treatment', 'Estimated business portion (CAD)', 'Estimate note', 'GST/HST included', 'Purpose', 'Has receipt', 'Notes', 'Project', 'Receipt number', 'Scanned receipt'],
         expenseRows(year, 'vehicle').map(({ e, p }) => [e.id, e.date, e.vendor, e.category, e.vehicle, e.amount, e.currency, e.fxRate, p.cad,
-          e.use === 'shared' ? 'Business-use % of km' : e.use === 'business' ? '100% business' : 'Personal', p.est, p.note, e.tax, e.purpose, yn(e.receiptId), e.notes]));
+          e.use === 'shared' ? 'Business-use % of km' : e.use === 'business' ? '100% business' : 'Personal', p.est, p.note, e.tax, e.purpose, yn(e.receiptId), e.notes, e.project, e.scan ? e.scan.receiptNo : '', yn(e.scan)]));
     },
   },
   mileage: {

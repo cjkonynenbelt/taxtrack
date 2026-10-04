@@ -89,7 +89,8 @@ export function incomeForm(rec = {}) {
 const VEHICLE_USE = [{ value: 'shared', label: 'Business-use %' }, { value: 'business', label: '100% business' }, { value: 'personal', label: 'Personal' }];
 const OTHER_USE = [{ value: 'business', label: 'Business' }, { value: 'mixed', label: 'Mixed' }, { value: 'personal', label: 'Personal' }];
 
-export function expenseForm(rec = {}) {
+// `extra` is used by the receipt scanner: { title, saveLabel, fields (shown above the receipt), openAdvanced }
+export function expenseForm(rec = {}, extra = {}) {
   const s = state.settings;
   const values = {
     date: today(), group: 'other', currency: 'CAD', fxMethod: 'rate', vehicle: s.defaultVehicle,
@@ -99,7 +100,7 @@ export function expenseForm(rec = {}) {
     customerName: customerName(rec.customerId),
   };
   if (!values.category) values.category = values.group === 'vehicle' ? VEHICLE_CATEGORIES[0] : OTHER_CATEGORIES[0];
-  if (!rec.id) {
+  if (!rec.id && !rec.use) {
     // Same starting points the form applies when the category is changed.
     if (['Parking', 'Tolls'].includes(values.category)) values.useVehicle = 'business';
     const info = CATEGORIES[values.category];
@@ -111,9 +112,10 @@ export function expenseForm(rec = {}) {
   const isVeh = v => v.group === 'vehicle';
   const usd = v => v.currency === 'USD';
   openForm({
-    title: rec.id ? 'Edit expense' : 'Add expense',
+    title: extra.title || (rec.id ? 'Edit expense' : 'Add expense'),
+    saveLabel: extra.saveLabel || 'Save',
     values,
-    openAdvanced: !!rec.id,
+    openAdvanced: !!rec.id || !!extra.openAdvanced,
     fields: [
       { name: 'group', label: 'Expense type', type: 'seg', options: [{ value: 'vehicle', label: 'Vehicle' }, { value: 'other', label: 'Other business' }] },
       { name: 'category', label: 'Category', type: 'select', options: v => (isVeh(v) ? VEHICLE_CATEGORIES : OTHER_CATEGORIES) },
@@ -138,6 +140,7 @@ export function expenseForm(rec = {}) {
           return `Original amount: <strong>${money(v.amount, cur)}</strong> &middot; potential business portion (${p}%): <strong>${money(v.amount * p / 100, cur)}</strong>`;
         },
       },
+      ...(extra.fields || []),
       { name: 'receipt', label: 'Receipt', type: 'receipt' },
       {
         name: 'guide', type: 'info', render: v => {
@@ -154,6 +157,8 @@ export function expenseForm(rec = {}) {
       { name: 'purpose', label: 'Business purpose', type: 'text', placeholder: 'What was this for?' },
       { name: 'tax', label: 'GST/HST included (optional)', type: 'number', advanced: true },
       { name: 'customerName', label: 'Customer / business (optional)', type: 'text', list: customerNames(), advanced: true },
+      { name: 'project', label: 'Project (optional)', type: 'text', list: uniq(all('expense').map(e => e.project)), advanced: true, hint: 'Pick an existing project or type a new name.' },
+      { name: 'needsReview', type: 'check', label: 'Needs review', checkLabel: 'Not sure about this one - keep it in Expenses Needing Review', advanced: true },
       { name: 'notes', label: 'Notes', type: 'textarea', advanced: true },
     ],
     onChange(v, set, name) {
@@ -171,7 +176,15 @@ export function expenseForm(rec = {}) {
       if (use === 'mixed' && !(v.businessPct > 0 && v.businessPct <= 100)) throw new Error('Enter a business-use % between 1 and 100.');
       if (use !== 'personal') requireFx(v, 'you paid');
       await finalizeReceipt(v, orig.receiptId);
-      const { customerName: cn, useVehicle, useOther, fxLine, portion, guide, receipt, ...clean } = v;
+      const { customerName: cn, useVehicle, useOther, fxLine, portion, guide, receipt, treatmentInfo, scanInfo, ...clean } = v;
+      if (v.scan) {
+        // Keep a note of what the user changed from the scanned values; saving counts as reviewing it.
+        const sc = v.scan, fix = { ...(v.corrections || {}) };
+        const diff = (key, scanned, saved) => { if (scanned != null && String(scanned) !== String(saved ?? '')) fix[key] = { scanned, saved }; };
+        diff('merchant', sc.merchant, v.vendor); diff('date', sc.date, v.date); diff('total', sc.total, v.amount); diff('tax', sc.tax, v.tax); diff('currency', sc.currency, v.currency);
+        clean.corrections = fix;
+        clean.reviewed = !v.needsReview;
+      }
       await save('expense', {
         ...clean, ...fxFields(v), use,
         businessPct: use === 'mixed' ? v.businessPct : null,

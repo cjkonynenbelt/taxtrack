@@ -58,7 +58,7 @@ function readDataUrl(file) {
 }
 
 // Photos are downscaled to keep the local database (and backups) small.
-async function prepareFile(file) {
+export async function prepareFile(file) {
   if (file.type.startsWith('image/')) {
     try {
       const url = URL.createObjectURL(file);

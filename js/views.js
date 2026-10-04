@@ -4,6 +4,7 @@ import { state, all, byId, customerName, expectedPayments, isDue, skipExpected }
 import { summary, inYear, cadOf, expenseParts, kmSummary, monthSummary, customerTotals } from './calc.js';
 import { tripForm, startTripForm, stopTripForm, activeTrip } from './mileage.js';
 import { equipForm } from './equipment.js';
+import { scanReceipt, reviewQueue } from './scan.js';
 import { incomeForm, expenseForm, customerForm, installationForm, recurringForm, confirmExpected } from './forms.js';
 import { confirmDialog, viewReceipt } from './ui.js';
 import { monthBars, rankBars, splitBar } from './charts.js';
@@ -140,6 +141,7 @@ export function home(root) {
       <button class="quick-btn" data-act="add-expense">+ Add Expense</button>
       <button class="quick-btn" data-act="add-install">+ Add Installation</button>
       <button class="quick-btn" data-act="add-equip">+ Add Equipment</button>
+      <button class="quick-btn" data-act="scan">Scan Receipt</button>
     </div>
     ${expectedBlock(Y(), { limit: 3 })}
     <section class="panel">
@@ -188,7 +190,7 @@ export function home(root) {
       <section class="panel"><h2>USD vs CAD income <small>(CAD value)</small></h2>${splitBar({ label: 'Paid in USD', value: s.income.usdConverted }, { label: 'Paid in CAD', value: s.income.cadNative }, v => money(v, 'CAD', 0))}</section>
     </div>` : `<section class="panel"><p class="muted">No records for ${Y()} yet. Use the buttons above to add your first income, trip or expense. Charts appear here once you have data.</p></section>`}
     <p class="where muted">Your records are stored only in this browser on this device. <a href="#/export">Back up regularly</a>.</p>`;
-  wire(root, { 'start-trip': startTripForm, 'stop-trip': stopTripForm, 'add-income': () => incomeForm(), 'add-trip': () => tripForm(), 'add-expense': () => expenseForm(), 'add-install': () => installationForm(), 'add-equip': () => equipForm(), ...expActions });
+  wire(root, { 'start-trip': startTripForm, 'stop-trip': stopTripForm, 'add-income': () => incomeForm(), 'add-trip': () => tripForm(), 'add-expense': () => expenseForm(), 'add-install': () => installationForm(), 'add-equip': () => equipForm(), scan: scanReceipt, ...expActions });
 }
 
 // ---- income ----------------------------------------------------------------
@@ -233,7 +235,8 @@ export function expenses(root) {
   const s = summary(Y());
   const tabs = [['', 'All'], ['vehicle', 'Vehicle'], ['other', 'Other business']];
   root.innerHTML = `
-    ${head('Expenses', '<button class="btn primary" data-act="add">+ Add expense</button>')}
+    ${head('Expenses', '<button class="btn" data-act="scan">Scan receipt</button> <button class="btn primary" data-act="add">+ Add expense</button>')}
+    ${reviewQueue().length ? `<p class="callout"><a href="#/needs-review">${reviewQueue().length} expense(s) need review</a></p>` : ''}
     <div class="tabs">${tabs.map(([v, l]) => `<button data-act="tab" data-id="${v}" class="${(st.group || '') === v ? 'on' : ''}">${l}</button>`).join('')}</div>
     ${st.group === 'vehicle' ? `
       <div class="stats strip">
@@ -275,6 +278,7 @@ export function expenses(root) {
     add: () => expenseForm(st.group ? { group: st.group } : {}),
     edit: id => expenseForm(byId('expense', id)),
     receipt: id => viewReceipt(id),
+    scan: scanReceipt,
     tab: id => { filters.expenses = { ...st, group: id, category: '' }; expenses(root); },
     'clear-filters': () => { filters.expenses = { group: st.group }; expenses(root); },
   });

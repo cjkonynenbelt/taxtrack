@@ -7,6 +7,7 @@ import * as v3 from './assets.js';
 import * as m from './mileage.js';
 import * as q from './equipment.js';
 import * as c from './cra.js';
+import * as sc from './scan.js';
 import { requireUnlock } from './lock.js';
 import { $, $$, yearOf } from './util.js';
 
@@ -15,7 +16,7 @@ const routes = {
   customers: v1.customers, customer: v1.customer, installations: v1.installations,
   recurring: v1.recurring, months: v1.months, month: v1.month, more: v1.more,
   assets: v3.assets, asset: v3.asset,
-  equipment: q.equipment, equip: q.equipItem, techreport: q.techReport, cra: c.cra,
+  equipment: q.equipment, equip: q.equipItem, techreport: q.techReport, cra: c.cra, 'needs-review': sc.needsReview,
   tax: v2.tax, review: v2.review, reference: v2.reference, export: v2.exportView, settings: v2.settings,
 };
 // Which bottom-nav tab is highlighted for each route.
