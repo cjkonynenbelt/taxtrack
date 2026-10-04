@@ -51,6 +51,11 @@ export const T2125 = {
   'Internet': ['9220', 'Utilities (internet)'],
   'Training/education': ['9270', 'Other expenses - training'],
   'Clothing/uniforms': ['9270', 'Other expenses - clothing (review)'],
+  'Rent': ['8910', 'Rent'],
+  'Repairs & maintenance': ['8960', 'Repairs and maintenance'],
+  'Delivery & freight': ['9275', 'Delivery, freight and express'],
+  'Contractors & wages': ['9060', 'Salaries, wages and benefits / subcontracts'],
+  'Inventory / cost of goods': ['8320', 'Purchases during the year (cost of goods sold)'],
   'Other': ['9270', 'Other expenses'],
   'Computer/equipment': ['9936', 'Capital cost allowance (not a current expense)'],
   'Home office': ['9945', 'Business-use-of-home expenses'],
@@ -119,7 +124,7 @@ export function buildPackage(year = Y()) {
     vehicle: { km: s.km, total: round2(s.exp.vehicleTotal), estimate: round2(s.exp.vehicleEst), byCategory: s.exp.vehicleByCategory },
     cca: { vehicles: s.cca.rows, equipment: s.equip.rows.filter(r => r.t.kind === 'capital' && String(r.e.date).slice(0, 4) <= String(year)), vehicleTotal: s.cca.deductible, equipmentTotal: s.equip.cca, counted: st.includeCca !== false },
     equipment: { purchased: s.equip.rows.filter(r => r.purchased), purchasedTotal: s.equip.purchasedTotal, current: s.equip.current, currentItems: s.equip.rows.filter(r => r.row && r.row.current) },
-    homeOffice: { recorded: round2(s.exp.homeTotal), qualifies: st.homeOffice.qualifies, pct: st.homeOffice.pct },
+    homeOffice: { recorded: round2(s.exp.homeTotal), qualifies: st.homeOffice.qualifies, pct: st.homeOffice.pct, calc: s.home },
     meals: lines['8523|Meals and entertainment (allowable part only)'] || null,
     travel: lines['9200|Travel expenses'] || null,
     gst: { registered: !!(st.gst && st.gst.registered), number: (st.gst && st.gst.number) || '', revenue: round2(s.income.cad), overThreshold: s.income.cad > 30000, paidOnExpenses: round2(sum(s.exp.items.filter(x => x.e.use !== 'personal'), x => Number(x.e.tax) || 0)) },
@@ -193,6 +198,15 @@ export function buildPackagePdf(year = Y()) {
   doc.kv('Home-office expenses recorded (business part)', m(p.homeOffice.recorded));
   doc.kv('Owner indicates the conditions are met', p.homeOffice.qualifies ? 'Yes' : 'Not confirmed');
   doc.kv('Work space as % of home', p.homeOffice.pct ? `${p.homeOffice.pct}%` : 'not entered');
+  if (p.homeOffice.calc.set) {
+    const c = p.homeOffice.calc;
+    doc.kv('Home office calculator: meets a CRA condition (as answered)', c.eligible ? 'Yes' : 'No');
+    doc.kv('Home office calculator: total home costs', m(c.costs));
+    doc.kv('Home office calculator: share of home', `${round2(c.share * 100)}%`);
+    doc.kv('Home office calculator: potentially claimable', m(c.claim));
+    doc.kv('Home office calculator: included in the estimate', c.counted > 0 ? m(c.counted) : 'No');
+    if (c.carryForward > 0) doc.kv('Home office calculator: carried forward', m(c.carryForward));
+  }
 
   doc.h2('7. GST/HST');
   doc.kv('Registered for GST/HST', p.gst.registered ? `Yes${p.gst.number ? ` - ${p.gst.number}` : ''}` : 'No');
@@ -248,7 +262,7 @@ export function buildPackageXlsx(year = Y()) {
     ['EXPENSES (estimates)'], ['Business expenses recorded', p.expenses.business], ['Other deductible expenses (estimate)', p.expenses.otherEstimate],
     ['Vehicle expenses recorded', p.vehicle.total], ['Vehicle expenses, business portion (estimate)', p.vehicle.estimate],
     ['Equipment treated as current expense', p.equipment.current], ['CCA - vehicles (estimate)', p.cca.vehicleTotal], ['CCA - equipment (estimate)', p.cca.equipmentTotal],
-    ['Home-office expenses recorded', p.homeOffice.recorded], [],
+    ['Home-office expenses recorded', p.homeOffice.recorded], ['Business-use-of-home, calculator (estimate)', p.homeOffice.calc.claim], ['Business-use-of-home counted in the estimate', p.homeOffice.calc.counted], [],
     ['MILEAGE'], ['Total kilometres', round2(p.vehicle.km.total)], ['Business kilometres', round2(p.vehicle.km.business)], ['Personal kilometres', round2(p.vehicle.km.personal)], ['Business-use %', round2(p.vehicle.km.pct * 100)], [],
     ['ESTIMATE'], ['Estimated net business income', p.net], ['Estimated income tax', p.tax.incomeTax], ['Estimated CPP', p.tax.cpp], ['Estimated amount to set aside', p.tax.setAside],
   ];
@@ -330,6 +344,7 @@ export function cra(root) {
       ${line(`Equipment purchased in ${Y()}`, money(p.equipment.purchasedTotal))}
       ${line('Low-cost equipment as current expense', money(p.equipment.current))}
       ${line('Home-office expenses recorded', `${money(p.homeOffice.recorded)} <small>${p.homeOffice.qualifies ? 'eligibility confirmed' : 'eligibility not confirmed'}</small>`)}
+      ${p.homeOffice.calc.set ? line('Business-use-of-home (calculator)', `${p.homeOffice.calc.eligible ? money(p.homeOffice.calc.claim) : 'not eligible'} <small>${p.homeOffice.calc.counted > 0 ? 'included in the estimate' : 'not included'}</small>`) : ''}
       <p class="muted"><a href="#/assets">Vehicle assets</a> &middot; <a href="#/techreport">Equipment report</a></p>
     </section>
     <section class="panel">

@@ -219,8 +219,17 @@ export function summary(year = state.settings.year) {
 
   const cca = ccaSummary(year);
   const equip = equipSummary(year);
-  const net = inc.cad - exp.est - cca.counted - equip.counted;
-  return { year, km, income: inc, exp, cca, equip, net, tax: taxEstimate(year, net), expected: expectedPayments(year) };
+  // Business-use-of-home comes last: it can never create or increase a loss.
+  const netBeforeHome = inc.cad - exp.est - cca.counted - equip.counted;
+  const home = homeCalc(year, netBeforeHome);
+  const net = netBeforeHome - home.counted;
+  // The three figures the app keeps apart: what was paid, the business part, and what may be deductible after limits.
+  const totals = {
+    paid: round2(exp.vehicleTotal + exp.otherTotal + exp.personalTotal),
+    business: round2(exp.businessTotal),
+    deductible: round2(exp.est + cca.counted + equip.counted + home.counted),
+  };
+  return { year, km, income: inc, exp, cca, equip, home, totals, net, tax: taxEstimate(year, net), expected: expectedPayments(year) };
 }
 
 // ---- month view ------------------------------------------------------------
@@ -283,7 +292,8 @@ export function taxEstimate(year, netBusiness) {
   const cppCreditBase = half1 * (c.baseRate / c.rate);
 
   const totalIncome = net + n(a.otherEmployment) + n(a.otherIncome);
-  const taxable = Math.max(0, totalIncome - n(a.extraDeductions) - cppDeduction);
+  const planDeductions = n(a.rrsp) + n(a.fhsa);
+  const taxable = Math.max(0, totalIncome - n(a.extraDeductions) - planDeductions - cppDeduction);
 
   const f = table.federal;
   let bpa = f.bpa.max;
@@ -294,6 +304,9 @@ export function taxEstimate(year, netBusiness) {
   const provincial = p ? Math.max(0, bracketTax(taxable, p.brackets) - p.brackets[0][1] * (p.bpa + cppCreditBase)) : 0;
 
   const incomeTax = federal + provincial;
+  // Marginal rate: the bracket rates on the next dollar of taxable income (income tax only, not CPP).
+  const rateAt = (brackets, income) => { let lower = 0; for (const [upper, rate] of brackets) { if (upper == null || income <= upper) return rate; lower = upper; } return 0; };
+  const marginal = incomeTax > 0 ? rateAt(f.brackets, taxable) + (p ? rateAt(p.brackets, taxable) : 0) : 0;
   const cpp = cpp1 + cpp2;
   const total = incomeTax + cpp;
   const setAside = Math.max(0, total - n(a.taxPaid));
@@ -304,8 +317,44 @@ export function taxEstimate(year, netBusiness) {
     federal: round2(federal), provincial: round2(provincial), incomeTax: round2(incomeTax),
     cpp1: round2(cpp1), cpp2: round2(cpp2), cpp: round2(cpp), total: round2(total),
     taxPaid: n(a.taxPaid), setAside: round2(setAside),
-    assumptions: a,
+    assumptions: a, planDeductions,
+    marginal, average: totalIncome > 0 ? incomeTax / totalIncome : 0,
+    federalBrackets: f.brackets, provincialBrackets: p ? p.brackets : null,
   };
+}
+
+// ---- business-use-of-home --------------------------------------------------
+
+export const HOME_COSTS = [
+  ['rent', 'Rent'], ['heat', 'Heat / natural gas'], ['electricity', 'Electricity'], ['water', 'Water'],
+  ['insurance', 'Home insurance'], ['propertyTax', 'Property taxes'], ['mortgageInterest', 'Mortgage interest (not principal)'],
+  ['maintenance', 'Maintenance, repairs and cleaning supplies'], ['other', 'Other (condo fees, etc.)'],
+];
+
+// The calculator's answers for a year -> what may be claimable. CRA's two
+// conditions decide eligibility; area and (for a shared space) hours decide the
+// share; net business income before the claim caps it. See rules.js 'home-*'.
+export function homeCalc(year, netBefore) {
+  const h = (state.settings.years[year] || {}).home || null;
+  const out = { set: !!h, h: h || {}, eligible: false, why: '', areaPct: 0, timeFactor: 1, share: 0, costs: 0, allowable: 0, carryIn: 0, limit: Math.max(0, netBefore), claim: 0, carryForward: 0, counted: 0 };
+  if (!h) return out;
+  const n = v => Number(v) || 0;
+  out.eligible = !!h.principal || (!!h.exclusive && !!h.meetsClients);
+  out.why = h.principal ? 'It is your principal place of business.'
+    : h.exclusive && h.meetsClients ? 'You use the space only for business and regularly meet clients there.'
+      : 'Neither CRA condition is met: it is not your principal place of business, and it is not used only for business while regularly meeting clients there.';
+  out.areaPct = n(h.totalArea) > 0 ? Math.min(1, n(h.workArea) / n(h.totalArea)) : 0;
+  out.timeFactor = h.exclusive ? 1 : Math.min(1, n(h.hoursPerDay) / 24) * Math.min(1, (n(h.daysPerWeek) || 7) / 7);
+  out.share = out.areaPct * out.timeFactor;
+  out.costs = round2(HOME_COSTS.reduce((t, [k]) => t + n((h.costs || {})[k]), 0));
+  out.carryIn = n(h.carryIn);
+  out.allowable = round2(out.costs * out.share + out.carryIn);
+  if (out.eligible) {
+    out.claim = round2(Math.min(out.allowable, out.limit));
+    out.carryForward = round2(out.allowable - out.claim);
+    out.counted = h.include ? out.claim : 0;
+  }
+  return out;
 }
 
 // ---- per-customer totals ---------------------------------------------------

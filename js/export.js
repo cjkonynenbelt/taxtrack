@@ -5,6 +5,9 @@ import { summary, inYear, cadOf, expenseParts, reviewReasons, customerTotals, km
 import { Pdf } from './pdf.js';
 import { schedule, assetName } from './cca.js';
 import { equipSchedule, equipFlags, earnsList } from './equip.js';
+import { gstSummary, smallSupplier } from './gst.js';
+import { ccaRows } from './ccaview.js';
+import { HOME_COSTS } from './calc.js';
 import { download, money, num, pct, MONTHS, today, fmtDate, round2 } from './util.js';
 
 const cell = v => {
@@ -25,18 +28,18 @@ export const CSV = {
     label: 'Income',
     build(year) {
       return toCsv(
-        ['Record ID', 'Date received', 'Status', 'Payer', 'Payment type', 'Customer', 'Amount', 'Currency', 'Exchange rate', 'Rate basis', 'CAD amount', 'Description', 'Notes', 'Has document', 'Source', 'Source record ID', 'Period'],
+        ['Record ID', 'Date received', 'Status', 'Payer', 'Payment type', 'Customer', 'Amount', 'Currency', 'Exchange rate', 'Rate basis', 'CAD amount', 'Description', 'Notes', 'Has document', 'Source', 'Source record ID', 'Period', 'GST/HST collected', 'Payment method', 'Invoice number'],
         byDate(inYear('income', year)).map(i => [i.id, i.date, i.status, i.payer, i.type, customerName(i.customerId), i.amount, i.currency,
-          i.fxRate, i.currency === 'USD' ? (i.fxMethod === 'cad' ? 'Implied from CAD received' : 'Entered rate') : '', cadOf(i), i.description, i.notes, yn(i.receiptId), i.sourceType || 'manual', i.sourceId, i.period]));
+          i.fxRate, i.currency === 'USD' ? (i.fxMethod === 'cad' ? 'Implied from CAD received' : 'Entered rate') : '', cadOf(i), i.description, i.notes, yn(i.receiptId), i.sourceType || 'manual', i.sourceId, i.period, i.gst, i.payMethod, i.invoiceNo]));
     },
   },
   expenses: {
     label: 'Other business expenses',
     build(year) {
       return toCsv(
-        ['Record ID', 'Date', 'Vendor', 'Category', 'Amount', 'Currency', 'Exchange rate', 'CAD amount', 'Classification', 'Business-use %', 'Business portion (CAD)', 'Counted in estimate (CAD)', 'Estimate note', 'GST/HST included', 'Business purpose', 'Customer', 'Has receipt', 'Review flags', 'Notes', 'Project', 'Receipt number', 'Scanned receipt'],
+        ['Record ID', 'Date', 'Vendor', 'Category', 'Amount', 'Currency', 'Exchange rate', 'CAD amount', 'Classification', 'Business-use %', 'Business portion (CAD)', 'Counted in estimate (CAD)', 'Estimate note', 'GST/HST included', 'Business purpose', 'Customer', 'Has receipt', 'Review flags', 'Notes', 'Project', 'Receipt number', 'Scanned receipt', 'Amount before tax', 'Other tax', 'Payment method', 'Who attended', 'Destination', 'Trip dates', 'Personal days', 'Reference', 'Verification status', 'Related asset ID'],
         expenseRows(year, 'other').map(({ e, p }) => [e.id, e.date, e.vendor, e.category, e.amount, e.currency, e.fxRate, p.cad, e.use,
-          e.use === 'mixed' ? e.businessPct : e.use === 'business' ? 100 : 0, p.portion, p.est, p.note, e.tax, e.purpose, customerName(e.customerId), yn(e.receiptId), reviewReasons(e).join('; '), e.notes, e.project, e.scan ? e.scan.receiptNo : '', yn(e.scan)]));
+          e.use === 'mixed' ? e.businessPct : e.use === 'business' ? 100 : 0, p.portion, p.est, p.note, e.tax, e.purpose, customerName(e.customerId), yn(e.receiptId), reviewReasons(e).join('; '), e.notes, e.project, e.scan ? e.scan.receiptNo : '', yn(e.scan), e.subtotal, e.otherTax, e.payMethod, e.attendees, e.destination, e.tripDates, e.personalDays, e.reference, e.verification, e.assetId]));
     },
   },
   vehicle: {
@@ -116,6 +119,71 @@ export const CSV = {
       }
       return toCsv(['Record ID', 'Status', 'Vehicle', 'Type', 'New/used', 'VIN', 'Purchase date', 'Price', 'Sales tax', 'Capital cost for CCA', 'CCA class', 'Business-use % (default)', 'Payment', 'Loan amount', 'Business purpose', 'Tax year', 'Opening UCC', 'CCA (estimate)', 'Business-use % that year', 'Deductible CCA (estimate)', 'Closing UCC', 'Has purchase document', 'Notes'], rows);
     },
+  },
+};
+
+CSV.cca = {
+  label: 'CCA schedule',
+  build(year) {
+    return toCsv(['Tax year', 'Asset', 'Type', 'Suggested CCA class', 'Acquired', 'Capital cost', 'Opening UCC', 'Additions', 'Disposition proceeds', 'CCA (estimate)', 'Business-use %', 'Deductible CCA (estimate)', 'Closing UCC', 'First-year rule', 'Possible recapture', 'Possible terminal loss', 'Record ID'],
+      ccaRows(year).map(r => [year, r.name, r.kind, r.cls ? `Class ${r.cls} (suggested - verify)` : 'Not determined', r.date, r.cost, r.open, r.addition, r.proceeds, r.cca, r.pct, r.deductible, r.close, r.first ? (r.rule === 'full' ? 'Full rate' : 'Half-year rule') : '', r.recapture || '', r.terminal || '', r.rec.id]));
+  },
+};
+CSV.home = {
+  label: 'Home office',
+  build(year) {
+    const c = summary(year).home;
+    const h = c.h;
+    return toCsv(['Item', 'Value'], [
+      ['Tax year', year], ['Principal place of business', c.set ? yn(h.principal) : 'not answered'], ['Used only for business', c.set ? yn(h.exclusive) : ''], ['Regularly meets clients there', c.set ? yn(h.meetsClients) : ''],
+      ['Meets a CRA condition (as answered)', yn(c.eligible)], ['Work space area', h.workArea], ['Total home area', h.totalArea], ['Area share %', round2(c.areaPct * 100)],
+      ['Hours per day (shared space)', h.hoursPerDay], ['Days per week (shared space)', h.daysPerWeek], ['Share of home costs %', round2(c.share * 100)],
+      ...HOME_COSTS.map(([k, l]) => [l, (h.costs || {})[k]]),
+      ['Total home costs', c.costs], ['Carried forward from last year', c.carryIn], ['Allowable before income limit', c.allowable], ['Net business income before the claim (limit)', round2(c.limit)],
+      ['Potentially claimable (estimate)', c.claim], ['Carried forward to next year', c.carryForward], ['Included in the app estimate', yn(c.counted > 0)],
+    ]);
+  },
+};
+CSV.gst = {
+  label: 'GST and HST',
+  build(year) {
+    const g = gstSummary(year), ss = smallSupplier();
+    return toCsv(['Section', 'Date', 'Record ID', 'Description', 'Tax amount', 'Potential ITC', 'Note'], [
+      ['Status', '', '', g.g.registered ? `Registered ${g.g.number || ''} (${g.g.period} filing)` : g.g.asked ? 'Not registered' : 'Not answered', '', '', ''],
+      ['Small-supplier check', '', '', `Income last four quarters ${ss.quarters[0]} to ${ss.quarters[3]}`, ss.last4, '', `Threshold ${ss.limit}`],
+      ...g.collected.map(c => ['Collected', c.rec.date, c.rec.id, c.rec.payer || c.rec.description, c.amount, '', c.period]),
+      ...g.itc.map(c => ['Paid on expenses', c.rec.date, c.rec.id, c.rec.vendor || c.rec.category, c.paid, g.g.registered ? c.amount : '', c.note]),
+      ...g.capital.map(c => ['Paid on capital purchases', c.rec.date, c.rec.id, c.rec.name || c.rec.vendor || c.rec.category, c.amount, '', 'Special rules - not estimated']),
+      ['TOTAL collected', '', '', '', g.totalCollected, '', ''], ['TOTAL potential ITCs', '', '', '', '', g.g.registered ? g.totalItc : '', g.g.registered ? '' : 'Not registered: no ITCs'],
+      ['Estimated net tax', '', '', '', g.g.registered ? g.net : '', '', 'Estimate only - not a GST/HST return'],
+    ]);
+  },
+};
+CSV.receipts = {
+  label: 'Receipts index',
+  build(year) {
+    const rows = [
+      ...inYear('expense', year).map(e => ['Expense', e.date, e.vendor || e.category, e.category, cadOf(e), e.use === 'personal' ? 'Personal' : 'Business', yn(e.receiptId), e.receiptId, e.id]),
+      ...inYear('income', year).map(i => ['Income', i.date, i.payer || customerName(i.customerId), i.type, cadOf(i), '', yn(i.receiptId), i.receiptId, i.id]),
+      ...all('equip').filter(e => String(e.date).slice(0, 4) === String(year)).map(e => ['Equipment', e.date, e.vendor || e.name, e.category, e.price, '', yn(e.receiptId), e.receiptId, e.id]),
+      ...all('asset').filter(a => String(a.purchaseDate).slice(0, 4) === String(year)).map(a => ['Vehicle', a.purchaseDate, assetName(a), a.vehicleType, a.price, '', yn(a.receiptId), a.receiptId, a.id]),
+    ].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+    return toCsv(['Type', 'Date', 'Vendor / payer', 'Category', 'Amount (CAD)', 'Classification', 'Receipt attached', 'Receipt ID (in backup file)', 'Record ID'], rows);
+  },
+};
+CSV.summary = {
+  label: 'Tax-year summary',
+  build(year) {
+    const s = summary(year), t = s.tax;
+    return toCsv(['Item', 'Amount (CAD)', 'Note'], [
+      ['Tax year', year, 'Estimates from the owner\'s records. Not a tax return.'],
+      ['Business income received', round2(s.income.cad), ''], ['Total paid, all expenses', s.totals.paid, 'Includes personal items kept for the record'],
+      ['Business portion of expenses', s.totals.business, 'Before limits'], ['Vehicle expenses, business share', round2(s.exp.vehicleEst), `${num(s.km.pct * 100, 1)}% business use`],
+      ['Other expenses after limits', round2(s.exp.otherEst), 'Meals at the 50% limit'], ['CCA and equipment counted', round2(s.cca.counted + s.equip.counted), ''], ['Business-use-of-home counted', s.home.counted, ''],
+      ['Potentially deductible total', s.totals.deductible, ''], ['Estimated net business income', round2(s.net), ''],
+      ['Estimated taxable income', round2(t.taxable), ''], ['Estimated federal tax', t.federal, ''], ['Estimated provincial tax', t.provincial, t.provinceName], ['Estimated CPP', t.cpp, 'Both halves'],
+      ['Estimated marginal rate %', round2(t.marginal * 100), 'Income tax only'], ['Estimated average rate %', round2(t.average * 100), 'Income tax only'],
+    ]);
   },
 };
 

@@ -5,13 +5,16 @@ import { summary, reviewReasons, inYear, mileageWarnings } from './calc.js';
 import { head, stat } from './views.js';
 import { expenseForm } from './forms.js';
 import { openForm, confirmDialog, toast, modal } from './ui.js';
-import { CATALOG, CATEGORIES, LINKS, VERIFY, lookup, LARGE_PURCHASE, OUTCOMES, CHECKED } from './reference.js';
+import { CATEGORIES, LINKS, LARGE_PURCHASE } from './reference.js';
+import { cite, rule, VALUES, yearValue, deadlines } from './rules.js';
+import { vehicleYear } from './calc.js';
+import { profileForm } from './dashboard.js';
 import { assetName } from './cca.js';
 import { PROVINCES, RATES, RATE_SOURCES, ratesFor } from './tax-rates.js';
 import { CSV, exportCsv, exportAllCsv, exportPdf, exportMileagePdf, exportBackup } from './export.js';
 import { setPin, clearPin } from './lock.js';
 import { byId, isDue } from './store.js';
-import { $, $$, esc, money, num, pct, fmtDate } from './util.js';
+import { $, $$, esc, money, num, pct, fmtDate, download } from './util.js';
 
 const Y = () => state.settings.year;
 
@@ -22,6 +25,13 @@ const numInput = (name, label, value, hint = '') => `<label class="f"><span>${es
 const parse = v => { const t = String(v).replace(/[,\s$%]/g, ''); return t === '' ? null : Number.isFinite(Number(t)) ? Number(t) : null; };
 
 // ---- tax estimate ----------------------------------------------------------
+
+const bracketCell = br => (br ? `${num(br[1] * 100, 1)}% ${br[0] ? `up to ${money(br[0], 'CAD', 0)}` : 'above that'}` : '');
+function bracketRows(t) {
+  const prov = t.provincialBrackets || [];
+  const n = Math.max(t.federalBrackets.length, prov.length);
+  return Array.from({ length: n }, (_, i) => `<tr><td>Bracket ${i + 1}</td><td>${bracketCell(t.federalBrackets[i])}</td><td>${bracketCell(prov[i])}</td></tr>`).join('');
+}
 
 export function tax(root) {
   const s = summary(Y());
@@ -44,8 +54,10 @@ export function tax(root) {
       ${line('Estimated other deductible expenses', `&minus; ${money(s.exp.otherEst)}`)}
       ${s.cca.rows.length ? line(`Estimated vehicle CCA, business share${state.settings.includeCca === false ? ' (not counted - Settings)' : ''}`, `&minus; ${money(s.cca.counted)}`) : ''}
       ${s.equip.rows.length ? line(`Estimated equipment &amp; technology (current expenses + CCA${state.settings.includeCca === false ? ' not counted' : ''})`, `&minus; ${money(s.equip.counted)}`) : ''}
+      ${s.home.set ? line(`Business-use-of-home${s.home.eligible ? (s.home.h.include ? '' : ' (calculated, not included)') : ' (not eligible)'}`, `&minus; ${money(s.home.counted)}`) : ''}
       ${line('Estimated net business income', money(s.net), 'total')}
       ${line('Other employment + other taxable income', `+ ${money((a.otherEmployment || 0) + (a.otherIncome || 0))}`)}
+      ${line('RRSP and FHSA contributions you entered', `&minus; ${money(t.planDeductions)}`)}
       ${line('Other deductions you entered', `&minus; ${money(a.extraDeductions || 0)}`)}
       ${line('Deductible part of CPP contributions', `&minus; ${money(t.cppDeduction)}`)}
       ${line('Estimated taxable income', money(t.taxable), 'total')}
@@ -57,6 +69,14 @@ export function tax(root) {
       ${line('Estimated amount to set aside', money(t.setAside), 'total strong')}
     </section>
     <section class="panel">
+      <h2>Marginal and average rate</h2>
+      ${line('Estimated marginal rate (income tax)', pct(t.marginal))}
+      ${line('Estimated average rate (income tax ÷ total income)', pct(t.average))}
+      <p class="muted">The marginal rate is the tax on your next dollar: it is what one more dollar of deduction saves, or one more dollar of income costs. The average rate is your income tax as a share of all your income, and is always lower because the first dollars are taxed at lower rates. Neither includes CPP. <a href="#/learn/marginal">How brackets work</a></p>
+      <div class="table-wrap"><table class="table"><thead><tr><th>${t.usedYear} brackets</th><th>Federal</th><th>${esc(t.province)}</th></tr></thead><tbody>${bracketRows(t)}</tbody></table></div>
+      ${cite('rates-2026')}
+    </section>
+    <section class="panel">
       <h2>Your assumptions</h2>
       <p class="muted">Change any of these - the estimate updates when you leave the field.</p>
       <div class="fields">
@@ -64,7 +84,9 @@ export function tax(root) {
         <label class="f half"><span>Tax year</span><input type="text" value="${Y()}" disabled><small>Change with the year selector at the top.</small></label>
         ${numInput('otherEmployment', 'Other employment income', a.otherEmployment)}
         ${numInput('otherIncome', 'Other taxable income', a.otherIncome, 'Interest, rental, EI, etc.')}
-        ${numInput('extraDeductions', 'Other estimated deductions', a.extraDeductions, 'e.g. RRSP contributions')}
+        ${numInput('rrsp', 'RRSP contributions to deduct', a.rrsp, `${Y()} dollar limit ${money(yearValue(VALUES.registered.rrsp.limit, Y()).value, 'CAD', 0)}; your own room is on your notice of assessment.`)}
+        ${numInput('fhsa', 'FHSA contributions to deduct', a.fhsa, `Up to ${money(VALUES.registered.fhsa.annual, 'CAD', 0)} of new room a year.`)}
+        ${numInput('extraDeductions', 'Other estimated deductions', a.extraDeductions, 'Child care, moving expenses, etc.')}
         ${numInput('taxPaid', 'Tax already paid', a.taxPaid, 'Instalments, or tax withheld from employment pay')}
         ${numInput('cppEmploymentEarnings', 'Employment earnings that already had CPP deducted', a.cppEmploymentEarnings, 'Reduces the CPP estimated on your business income')}
         <label class="check f"><input type="checkbox" data-set="includeCpp"${a.includeCpp ? ' checked' : ''}><span>Include CPP contributions on self-employment income</span></label>
@@ -74,11 +96,13 @@ export function tax(root) {
       <h2>What this estimate leaves out</h2>
       <ul class="plain">
         <li>Most personal credits and deductions (only the basic personal amount and CPP are applied).</li>
-        <li>Capital cost allowance on equipment, and on any vehicle not recorded under <a href="#/assets">Vehicle assets &amp; CCA</a>.</li>
-        <li>GST/HST. If your revenue passes $30,000 over four consecutive quarters you may need to register - ask your accountant how this applies to services billed to a U.S. company.</li>
+        <li>CCA on anything not recorded under <a href="#/cca">Assets &amp; CCA</a>.</li>
+        <li>GST/HST, which is separate from income tax. See <a href="#/gst">GST/HST</a>.</li>
+        <li>TFSA contributions: they are not deductible, so they do not change this estimate.</li>
         <li>Provincial surtaxes, health premiums, and EI.</li>
-        <li>Instalment requirements. CRA may ask for quarterly instalments (March 15, June 15, September 15, December 15).</li>
+        <li>Instalment requirements. ${esc(rule('instalments').summary)}</li>
       </ul>
+      <p class="muted">This is an estimate for planning how much to set aside. It is not an official CRA calculation and will differ from your actual return.</p>
       <p class="muted">Rate table: ${t.usedYear}${t.custom ? ' (your custom values)' : ' (built in)'}. <a href="${RATE_SOURCES.brackets}" target="_blank" rel="noopener">Verify current CRA rates</a> &middot; <a href="#/settings">Edit rate table</a></p>
     </section>
     <p class="disclaimer">${DISCLAIMER}</p>`;
@@ -117,17 +141,52 @@ export function review(root) {
     [s.income.pending.length > 0, `${s.income.pending.length} payment(s) still marked pending.`, '#/income'],
     [due.length > 0, `${due.length} expected recurring payment(s) due so far in ${Y()} are not confirmed as received.`, '#/recurring'],
     [noReceipt > 0, `${noReceipt} business expense(s) have no receipt attached.`, '#/expenses'],
-    [s.income.cad > 30000, 'Income is over $30,000 - ask your accountant whether you must register for GST/HST.', LINKS.guide],
+    [s.income.cad > VALUES.gstThreshold.value && !st.gst.registered, 'Income is over $30,000 - check whether you must register for GST/HST.', '#/gst'],
   ].filter(c => c[0]);
 
+  const ys = yearSettings(Y());
+  const ticks = ys.checklist || (ys.checklist = {});
+  const vehActive = s.exp.vehicleTotal > 0 || s.km.bizTrips > 0;
+  const odo = k => s.km.vehicles.filter(v => v.bizTrips > 0 || s.exp.items.some(x => x.e.group === 'vehicle')).every(v => vehicleYear(v.name, Y())[k] != null);
+  const unclassed = s.cca.undetermined + s.equip.undetermined;
+  // auto: true = the records show it is done, false = they show it is not, null = only you can say.
+  const list = [
+    ['income', 'Income recorded', s.income.count === 0 || s.income.pending.length + due.length > 0 ? false : null, s.income.count === 0 ? 'no income recorded' : `${s.income.pending.length} pending, ${due.length} expected payment(s) unconfirmed`, '#/income'],
+    ['expenses', 'Expenses recorded', s.exp.items.length === 0 ? false : null, 'no expenses recorded', '#/expenses'],
+    ['receipts', 'Receipts attached', s.exp.items.length === 0 ? null : noReceipt === 0, `${noReceipt} business expense(s) without a receipt`, '#/expenses'],
+    ['log', 'Vehicle log complete', !vehActive || (mileageWarnings(Y()).length === 0 && s.km.bizTrips > 0) ? null : false, s.km.bizTrips === 0 ? 'vehicle expenses but no business trips logged' : `${mileageWarnings(Y()).length} thing(s) do not add up`, '#/trips'],
+    ['odoStart', 'Beginning odometer recorded', !vehActive ? null : odo('odoStart'), 'missing for at least one vehicle', '#/trips'],
+    ['odoEnd', 'Ending odometer recorded', !vehActive ? null : odo('odoEnd'), 'missing for at least one vehicle', '#/trips'],
+    ['home', 'Home office calculation complete', s.home.set && s.home.h.principal != null ? true : s.exp.homeTotal > 0 ? false : null, 'home expenses recorded but the calculator is not done', '#/homeoffice'],
+    ['assets', 'Assets reviewed', null, '', '#/cca'],
+    ['cca', 'CCA reviewed', unclassed > 0 ? false : null, `${unclassed} asset(s) have no CCA class`, '#/cca'],
+    ['gst', 'GST/HST reconciled', !st.gst.asked ? false : null, 'GST/HST status not set', '#/gst'],
+    ['bank', 'Bank accounts reconciled', null, '', '#/months'],
+    ['missing', 'Missing receipts reviewed', null, '', '#/reminders'],
+    ['pcts', 'Business-use percentages reviewed', null, '', '#/expenses'],
+    ['export', 'Tax professional package exported', null, '', '#/cra'],
+  ].map(([key, label, auto, problem, href]) => ({ key, label, auto, problem, href, done: auto === true || (auto == null && !!ticks[key]) }));
+  const doneCount = list.filter(c => c.done).length;
+  const dl = deadlines(Y()).filter(d => ['pay', 'file', 'rrsp'].includes(d.key));
+
   root.innerHTML = `
-    ${head(`${Y()} year-end review`, '<a class="btn primary" href="#/export">Export for accountant</a>', 'Go through this before you export. The aim is to discuss these items with your accountant, not to claim everything automatically.')}
+    ${head(`${Y()} year-end`, '<a class="btn primary" href="#/cra">Prepare package</a>', 'Work through this before you export. The aim is complete, supportable records, not to claim everything.')}
+    <section class="panel">
+      <h2>${Y()} tax year checklist <small>${doneCount} of ${list.length}</small></h2>
+      <div class="progress"><span style="width:${Math.round(doneCount / list.length * 100)}%"></span></div>
+      <div class="checks">${list.map(c => `<label class="chk${c.done ? ' done' : ''}${c.auto === false ? ' blocked' : ''}"><input type="checkbox" data-check="${c.key}"${c.done ? ' checked' : ''}${c.auto != null ? ' disabled' : ''}><span>${esc(c.label)}${c.auto === false ? `<small class="warn-text">${esc(c.problem)}</small>` : c.auto === true ? '<small>confirmed from your records</small>' : ''}</span><a href="${c.href}" aria-label="Open">&rsaquo;</a></label>`).join('')}</div>
+      <p class="muted">Items the app can check from your records tick themselves. The rest are yours to confirm. Key dates: ${dl.map(d => `${esc(d.title)} ${fmtDate(d.date)}`).join(' &middot; ')}.</p>
+      ${cite('filing-deadline')}
+    </section>
     <section class="panel">
       <h2>${Y()} summary</h2>
       ${line('Income', money(s.income.cad))}
       ${line('Expenses (business, recorded)', money(s.exp.businessTotal))}
       ${line('Vehicle expenses (total recorded)', money(s.exp.vehicleTotal))}
       ${line('Business kilometres', `${num(s.km.business)} km`)}
+      ${line('Total paid, all expenses', money(s.totals.paid))}
+      ${line('Potentially deductible (after limits, incl. CCA)', money(s.totals.deductible))}
+      ${s.home.set ? line('Business-use-of-home', s.home.eligible ? `${money(s.home.claim)}${s.home.h.include ? '' : ' <small>not in estimate</small>'}` : 'not eligible') : ''}
       ${line('Estimated net business income', money(s.net), 'total')}
       ${line('Estimated tax set-aside', money(t.setAside), 'total strong')}
     </section>
@@ -178,53 +237,7 @@ export function review(root) {
     <p class="disclaimer">${DISCLAIMER}</p>`;
   $('[data-notes]', root).addEventListener('change', async e => { yearSettings(Y()).notes = e.target.value; await saveSettings(); });
   root.onclick = e => { const b = e.target.closest('[data-act="edit"]'); if (b) expenseForm(byId('expense', b.dataset.id)); };
-}
-
-// ---- potential business expenses / "Could I write this off?" ----------------
-
-const itemCard = (item, group) => `
-  <div class="ref-card">
-    <h3>${esc(item.name)}</h3>
-    <div class="answer ${item.outcome}"><span class="stat-label">Preliminary answer</span><strong class="answer-title">${OUTCOMES[item.outcome]}</strong></div>
-    <dl class="dl">
-      <dt>Why</dt><dd>${esc(item.status)} ${esc(item.special)}</dd>
-      <dt>How it may be treated</dt><dd>${esc(item.treat)}</dd>
-      <dt>Expense category</dt><dd>${esc(item.category ? `${item.group === 'vehicle' ? 'Vehicle: ' : ''}${item.category}` : group)} &middot; possible business-use: ${esc(item.pct)}</dd>
-      <dt>What I need to keep</dt><dd>${item.docs.map(esc).join(' &middot; ')}</dd>
-      <dt>What could change the answer?</dt><dd>${item.changes.map(esc).join(' &middot; ')}</dd>
-      <dt>Practical assessment</dt><dd>${esc(item.practical)}</dd>
-    </dl>
-    <p class="muted">Preliminary and general - it does not know your full situation. Tax treatment last checked ${fmtDate(CHECKED)}.</p>
-    <p class="ref-actions"><a class="btn small" href="${item.link}" target="_blank" rel="noopener">Verify current CRA rules</a>
-    ${item.asset ? '<a class="btn small" href="#/assets">Open Vehicle assets &amp; CCA</a>' : ''}
-    ${item.category ? `<button class="btn small" data-act="record" data-group="${item.group === 'vehicle' ? 'vehicle' : 'other'}" data-cat="${esc(item.category)}">Record this expense</button>` : ''}</p>
-  </div>`;
-
-let lastQuery = '';
-
-export function reference(root) {
-  root.innerHTML = `
-    ${head('Could I write this off?', '', 'A reference to help you spot potential business expenses and keep the right paperwork. It never decides deductibility for you.')}
-    <input type="search" class="search big" placeholder="Type an expense, e.g. new laptop, gas, lunch with customer" value="${esc(lastQuery)}" aria-label="Expense to look up">
-    <div data-results></div>
-    <h2 class="section-title">Potential business expenses</h2>
-    <p class="muted">Expenses that MAY be deductible for a self-employed salesperson, depending on your circumstances and current CRA rules.</p>
-    ${CATALOG.map(g => `<details class="review-group"><summary>${esc(g.title)} <span>${g.items.length}</span></summary>
-      <p class="muted">${esc(g.base.special)}</p>
-      ${g.items.map(i => itemCard(i, g.title)).join('')}</details>`).join('')}
-    <p class="muted">Sources: CRA guide T4002 and the CRA business expenses pages. <a href="${LINKS.guide}" target="_blank" rel="noopener">T4002 guide</a> &middot; <a href="${LINKS.expenses}" target="_blank" rel="noopener">CRA business expenses</a></p>
-    <p class="disclaimer">${DISCLAIMER}</p>`;
-  const paint = q => {
-    lastQuery = q;
-    const box = $('[data-results]', root);
-    if (!q.trim()) { box.innerHTML = ''; return; }
-    const hits = lookup(q);
-    box.innerHTML = hits.length ? hits.map(h => itemCard(h.item, h.group)).join('')
-      : `<div class="ref-card"><h3>No match for "${esc(q)}"</h3><p>That does not mean it cannot be a business expense. The general test is whether the cost was incurred to earn business income and is reasonable. Record it under <strong>Other</strong> with a clear business purpose and a receipt, and it will be flagged for your accountant to review.</p><p class="muted">${esc(VERIFY)}</p><p><a class="btn small" href="${LINKS.expenses}" target="_blank" rel="noopener">Verify current CRA rules</a></p></div>`;
-  };
-  $('.search', root).addEventListener('input', e => paint(e.target.value));
-  paint(lastQuery);
-  root.onclick = e => { const b = e.target.closest('[data-act="record"]'); if (b) expenseForm({ group: b.dataset.group, category: b.dataset.cat }); };
+  $$('[data-check]', root).forEach(el => el.addEventListener('change', async () => { ticks[el.dataset.check] = el.checked; await saveSettings(); }));
 }
 
 // ---- export & backup -------------------------------------------------------
@@ -252,7 +265,7 @@ function restoreFlow() {
 const storageNote = `<strong>Where your data is stored:</strong> only in this web browser on this device (its built-in IndexedDB storage). Nothing is uploaded to GitHub or any server, and nobody else can see it. That also means it does not sync between your phone and computer, and clearing this browser's site data or deleting the app from your home screen erases it. A backup file is the only copy outside this device.`;
 
 export function exportView(root) {
-  const counts = { income: inYear('income', Y()).length, expenses: inYear('expense', Y()).filter(e => e.group === 'other').length, vehicle: inYear('expense', Y()).filter(e => e.group === 'vehicle').length, mileage: inYear('trip', Y()).length, customers: all('customer').length, installations: inYear('installation', Y()).length, assets: all('asset').length, equipment: all('equip').length };
+  const counts = { income: inYear('income', Y()).length, expenses: inYear('expense', Y()).filter(e => e.group === 'other').length, vehicle: inYear('expense', Y()).filter(e => e.group === 'vehicle').length, mileage: inYear('trip', Y()).length, customers: all('customer').length, installations: inYear('installation', Y()).length, assets: all('asset').length, equipment: all('equip').length, cca: '', home: '', gst: '', receipts: '', summary: '' };
   const last = state.settings.lastBackup;
   root.innerHTML = `
     ${head('Export & backup', '', `Tax year ${Y()}`)}
@@ -263,6 +276,7 @@ export function exportView(root) {
         <a class="btn primary" href="#/cra">Prepare my taxes (full package)</a>
         <button class="btn" data-act="pdf">PDF year-end summary</button>
         <button class="btn" data-act="mileage-pdf">Mileage log PDF</button>
+        <button class="btn" data-act="xlsx">Excel workbook</button>
         <button class="btn" data-act="csv-all">All CSV files</button>
         ${Object.entries(CSV).map(([k, v]) => `<button class="btn" data-act="csv" data-id="${k}">${esc(v.label)} CSV <small>${counts[k]}</small></button>`).join('')}
       </div>
@@ -282,6 +296,7 @@ export function exportView(root) {
     const act = b.dataset.act;
     if (act === 'pdf') exportPdf(Y());
     if (act === 'csv-all') exportAllCsv(Y());
+    if (act === 'xlsx') { const { buildPackageXlsx } = await import('./cra.js'); download(`taxtrack-${Y()}-package.xlsx`, buildPackageXlsx(Y()), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'); }
     if (act === 'mileage-pdf') exportMileagePdf(Y());
     if (act === 'csv') exportCsv(b.dataset.id, Y());
     if (act === 'backup') { await exportBackup(); await saveSettings(); toast('Backup downloaded.'); }
@@ -354,12 +369,10 @@ export function settings(root) {
       ${select('theme', 'Appearance', [['auto', 'Match device'], ['light', 'Light'], ['dark', 'Dark']], s.theme)}
     </div></section>
 
-    <section class="panel"><h2>Business information</h2><p class="muted">Shown on the PDF summary.</p><div class="fields">
-      ${text('business.name', 'Business / trade name', s.business.name)}
-      ${text('business.owner', 'Your name', s.business.owner)}
-      ${text('business.number', 'Business number (optional)', s.business.number)}
-      ${text('business.address', 'Address', s.business.address)}
-    </div></section>
+    <section class="panel"><h2>Business profile</h2>
+      <dl class="dl"><dt>Business</dt><dd>${esc(s.business.name || 'Not set')}</dd><dt>Owner</dt><dd>${esc(s.business.owner || '—')}</dd><dt>Structure</dt><dd>${esc(s.business.structure || 'Sole proprietor')}</dd><dt>Activity</dt><dd>${esc(s.business.activity || '—')}</dd></dl>
+      <div class="btn-list"><button class="btn" data-act="profile">Edit business profile</button><a class="btn" href="#/gst">GST/HST registration</a></div>
+      <p class="muted">Shown on exports. The app holds one business profile; the estimates assume a sole proprietor.</p></section>
 
     <section class="panel"><h2>Vehicle &amp; mileage</h2><div class="fields">
       ${text('vehicles', 'Vehicles', s.vehicles.join(', '), 'Separate more than one with commas.')}
@@ -374,11 +387,12 @@ export function settings(root) {
     </section>
 
     <section class="panel"><h2>Estimate assumptions</h2><div class="fields">
-      ${number('mealsPct', 'Meals & entertainment counted at (%)', s.mealsPct, 'CRA generally limits meals to 50%.')}
+      ${number('mealsPct', 'Meals & entertainment counted at (%)', s.mealsPct, `The limit is ${VALUES.mealsPct.value}%. Lower it for a more cautious estimate.`)}
       <label class="check f"><input type="checkbox" data-s="includeEquipment"${s.includeEquipment ? ' checked' : ''}><span>Count equipment purchases as current-year expenses in the estimate</span></label>
       <small class="f">Off by default: equipment is usually claimed gradually (CCA), which your accountant calculates.</small>
       <label class="check f"><input type="checkbox" data-s="includeCca"${s.includeCca === false ? '' : ' checked'}><span>Count estimated CCA (business share) in the estimate</span></label>
       <small class="f">Applies to vehicles under Vehicle assets &amp; CCA and to capital items under Equipment &amp; technology. Turn off for a more cautious set-aside.</small>
+      <small class="f">Home office: use the <a href="#/homeoffice">home office calculator</a>. The two settings below only affect expenses you recorded in the "Home office" category.</small>
       <label class="check f"><input type="checkbox" data-s="homeOffice.qualifies"${s.homeOffice.qualifies ? ' checked' : ''}><span>I qualify to claim home-office expenses</span></label>
       <small class="f">Tick only if your home work space is your principal place of business, or is used only to earn business income and regularly to meet clients. If unsure, leave it off and ask your accountant. <a href="${LINKS.home}" target="_blank" rel="noopener">Verify current CRA rules</a></small>
       ${number('homeOffice.pct', 'Work space as % of home', s.homeOffice.pct, 'Pre-fills the business-use % on home-office expenses.')}
@@ -410,7 +424,7 @@ export function settings(root) {
       if (!s.vehicles.length) s.vehicles = defaultSettings().vehicles;
       if (!s.vehicles.includes(s.defaultVehicle)) s.defaultVehicle = s.vehicles[0];
     }
-    else if (key === 'mealsPct') s.mealsPct = Math.min(100, Math.max(0, parse(val) ?? 50));
+    else if (key === 'mealsPct') s.mealsPct = Math.min(VALUES.mealsPct.value, Math.max(0, parse(val) ?? VALUES.mealsPct.value));
     else if (key.startsWith('y.')) ys[key.slice(2)] = parse(val);
     else if (key.startsWith('business.')) s.business[key.slice(9)] = val;
     else if (key === 'homeOffice.qualifies') s.homeOffice.qualifies = val;
@@ -424,6 +438,7 @@ export function settings(root) {
     if (!b) return;
     const act = b.dataset.act;
     if (act === 'rates') rateEditor();
+    if (act === 'profile') profileForm();
     if (act === 'pin') pinForm();
     if (act === 'pin-off' && await confirmDialog('Turn off the app lock?', { ok: 'Turn off', danger: false })) { await clearPin(); toast('App lock is off.'); }
     if (act === 'reset') {

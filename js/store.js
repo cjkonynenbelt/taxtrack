@@ -40,7 +40,10 @@ export function defaultSettings() {
     includeEquipment: false,      // count equipment purchases as current-year expenses in the estimate
     includeCca: true,             // count estimated vehicle CCA (business share) in the estimate
     homeOffice: { qualifies: false, pct: 0 },
-    business: { name: '', owner: '', number: '', address: '' },
+    business: { name: '', owner: '', number: '', address: '', structure: 'Sole proprietor', activity: '' },
+    gst: { asked: false, registered: false, number: '', period: 'annual', since: '' },
+    phoneLines: [],               // phone & internet calculator rows
+    dismissed: {},                // reminder key -> date it was dismissed
     lock: { enabled: false, salt: '', hash: '' },
     years: {},                    // per-year vehicle totals + tax assumptions
     rateOverrides: {},            // per-year replacement tax tables
@@ -54,6 +57,8 @@ export function yearSettings(year = state.settings.year) {
       totalKm: null, odoStart: null, odoEnd: null, bizKmOverride: null,
       tax: { otherEmployment: 0, otherIncome: 0, extraDeductions: 0, taxPaid: 0, cppEmploymentEarnings: 0, includeCpp: true },
       notes: '',
+      home: null,                 // business-use-of-home calculator answers
+      checklist: {},              // year-end checklist items ticked by hand
     };
   }
   return ys[year];
@@ -62,7 +67,7 @@ export function yearSettings(year = state.settings.year) {
 export async function load() {
   const saved = await db.get('kv', 'settings');
   const def = defaultSettings();
-  state.settings = saved ? { ...def, ...saved, homeOffice: { ...def.homeOffice, ...saved.homeOffice }, business: { ...def.business, ...saved.business }, lock: { ...def.lock, ...saved.lock } } : def;
+  state.settings = saved ? { ...def, ...saved, homeOffice: { ...def.homeOffice, ...saved.homeOffice }, business: { ...def.business, ...saved.business }, gst: { ...def.gst, ...saved.gst }, lock: { ...def.lock, ...saved.lock } } : def;
   for (const k of KINDS) state.data[k] = [];
   for (const r of await db.getAll('records')) if (state.data[r.kind]) state.data[r.kind].push(r);
   db.requestPersistence();

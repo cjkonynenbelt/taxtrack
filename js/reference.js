@@ -21,6 +21,8 @@ export const CHECKED = '2026-10-01'; // date the rule summaries in this file wer
 export const VERIFY ='Verify the current CRA rules or ask your accountant before claiming.';
 export const POTENTIAL = 'Potentially deductible depending on your circumstances.';
 
+export const PAY_METHODS = ['Business credit card', 'Personal credit card', 'Debit', 'Cash', 'E-transfer', 'Bank transfer', 'Cheque', 'PayPal / Stripe / Square', 'Other'];
+export const VERIFY_STATUS = ['Not reviewed', 'Receipt checked', 'Reviewed with accountant'];
 export const INCOME_TYPES = ['Monthly residual/commission', 'Installation payment', 'Sales commission', 'Bonus', 'Other business income'];
 export const TRIP_PURPOSES = ['Sales meeting', 'Prospecting', 'Customer installation', 'Customer visit', 'Equipment delivery', 'Training', 'Business errand', 'Other business'];
 export const PERSONAL = 'Personal';
@@ -51,6 +53,11 @@ export const CATEGORIES = {
   'Licences, dues & memberships': { docs: [...RECEIPT, 'What the licence or membership is for'], link: anchor('businesstaxfeeslicencesdues') },
   'Clothing/uniforms': { docs: [...RECEIPT, 'Why the item is required for the work'], warn: 'Ordinary clothing is generally NOT deductible just because you wear it for work. Record it here only so your accountant can review it.', review: 'Clothing - ordinary clothing is generally not deductible', link: LINKS.guide },
   'Home office': { docs: ['Bills (rent, utilities, insurance)', 'Size of the work space vs. the whole home', 'How the space is used'], warn: 'Business-use-of-home expenses can be claimed only if the space is your principal place of business, or is used only to earn business income and on a regular and continuing basis to meet clients. The claim cannot create or increase a loss. Left out of the estimate unless you confirm in Settings that you qualify.', pctHint: 'Work space as % of home', review: 'Home office - confirm you meet the conditions', home: true, link: LINKS.home },
+  'Rent': { docs: ['Lease', 'Payment records'], warn: 'Rent for business premises or storage only. Rent for your home belongs in the home office calculator.', link: anchor('rent') },
+  'Repairs & maintenance': { docs: [...RECEIPT, 'What was repaired'], warn: 'Repairs to business property. A repair that improves the property beyond its original condition is a capital cost.', link: anchor('maintenanceandrepairs') },
+  'Delivery & freight': { docs: RECEIPT, link: anchor('deliveryfreightandexpress') },
+  'Contractors & wages': { docs: ['Invoice or pay record', 'What work was done', 'Proof of payment'], warn: 'Paying a family member is deductible only for real, necessary work at a reasonable amount that you actually paid. Employees need payroll deductions.', review: 'Wages / contractors - confirm payroll and slip requirements', link: anchor('salarieswagesandbenefitsincludingemployerscontributions') },
+  'Inventory / cost of goods': { docs: [...RECEIPT, 'What was bought for resale'], warn: 'Goods bought to resell are deducted as cost of goods sold when they are sold, not when bought.', review: 'Inventory - cost of goods sold is calculated at year-end', link: LINKS.guide },
   'Other': { docs: [...RECEIPT, 'Business purpose'], review: 'Uncategorised - confirm category with accountant', link: LINKS.expenses },
 };
 export const OTHER_CATEGORIES = Object.keys(CATEGORIES);

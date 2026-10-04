@@ -1,146 +1,129 @@
 # TaxTrack
 
-A private, mobile-first record-keeping app for self-employed sales and installation work in Canada: income (CAD and USD), mileage, vehicle and business expenses, customers, installations, recurring commissions, a tax set-aside estimate, and exports for an accountant.
+A private, mobile-first record-keeping app for a self-employed person in Canada. It is set up for commission-based sales and installation work in Alberta: income (CAD and USD), expenses with receipts, mileage, vehicles and equipment (CCA), business-use-of-home, GST/HST, reminders, a guided "Can I deduct this?" check, a tax estimate, and exports for an accountant.
 
-**This is a record-keeping and estimation tool, not tax-filing software.** Every tax figure is an estimate. It does not decide what is deductible and its numbers are not guaranteed to match CRA requirements. Use the exports to work with a qualified Canadian tax professional.
+**This is a record-keeping and estimation tool, not tax-filing software and not tax advice.** Every tax figure is an estimate. The app never files anything, never connects to the CRA and never asks for CRA sign-in details.
+
+## Principles
+
+- Accuracy over aggressive tax optimisation. The app never suggests spending money because something is deductible, and never helps disguise a personal expense.
+- Government sources first: CRA, then Finance Canada and the Government of Canada, then Alberta, then legislation. Videos and blogs are never a source.
+- Current law, proposed law and CRA guidance are labelled separately. Proposed rules are shown for information and never used in a calculation.
+- Three figures are always kept apart: the total paid, the business portion, and the potentially deductible amount after limits.
 
 ## Where your data lives
 
-- All records, settings and receipt photos are stored **only in the browser on the device you use** (IndexedDB).
-- Nothing is sent to GitHub or any server. The GitHub repository holds the app's code only, so it is safe for the repository and the GitHub Pages site to be public.
-- Consequences to know about:
-  - Data does **not** sync between your phone and your computer. Each browser has its own copy.
-  - Clearing the browser's site data, or removing the home-screen app on iPhone, erases it.
-  - **Export & backup > Download full backup** is the only copy outside the device. Do it regularly and keep the file somewhere private (it is not encrypted). Never commit a backup file to the repository; `.gitignore` blocks the default file names.
-- The optional 4-digit app lock deters casual access. It is not encryption; your phone's passcode is the real protection.
-
-GitHub Pages can only serve static files, so it cannot act as a secure database. If you later want automatic sync between devices, that needs a separate private backend with sign-in (for example a hosted database with per-user access rules); `js/db.js` is the only file that talks to storage, so that is where it would plug in.
+- All records, settings and receipt photos are stored **only in the browser on the device you use** (IndexedDB). Nothing is sent to GitHub or any server. The repository holds code only, so it can be public.
+- There are no accounts and no AI service. Receipt reading (OCR) runs on the device; the Tesseract.js library is downloaded from a public CDN the first time you scan, but the photo itself is not uploaded.
+- Data does not sync between devices. Clearing the browser's site data, or deleting the home-screen app on iPhone, erases it. **Export & backup > Download full backup** is the only copy outside the device; keep it somewhere private (it is not encrypted). `.gitignore` blocks the default backup and export file names.
+- **Settings > Erase all data** deletes everything on the device.
+- The optional 4-digit app lock deters casual access. It is not encryption.
 
 ## Run it locally
 
-No build step and no dependencies - it is plain HTML, CSS and JavaScript modules. It must be served over http(s) (opening `index.html` directly from disk will not work).
-
-Windows (PowerShell):
+No build step and no dependencies: plain HTML, CSS and JavaScript modules. It must be served over http(s).
 
 ```
 powershell -ExecutionPolicy Bypass -File dev/serve.ps1 -Port 8097
 ```
 
-Then open http://localhost:8097/. Any other static server works too (`npx serve`, `python -m http.server`).
+Then open http://localhost:8097/. Any static server works (`npx serve`, `python -m http.server`).
 
-## Put it on GitHub Pages
+## Hosting on GitHub Pages
 
-1. Create a repository on GitHub (public is fine - it contains no data).
-2. Upload everything in this folder except `dev/` (or `git init`, commit, and push).
-3. Repository **Settings > Pages**: deploy from branch `main`, folder `/ (root)`.
-4. Open the Pages URL on your iPhone in Safari, then **Share > Add to Home Screen**. It then opens full-screen and works offline.
+The repository root is the site. In the repository's **Settings > Pages**, deploy from branch `main`, folder `/ (root)`. `dev/` is only the local preview server and does not need to be published.
 
-Data is tied to the site address. If you ever move the app to a different URL, download a backup first and restore it at the new address.
+To update the live app: commit, push to `main`, and bump `CACHE` in `sw.js` so installed copies pick up the new files. Updating the code never touches saved records, which are tied to the site address.
 
-## Updating the app
+## Keeping the tax rules current
 
-- Edit files, then bump `CACHE` in `sw.js` (for example `taxtrack-v2`) so phones pick up the new version.
-- Updating the code never touches saved records.
+Tax rules are data, in two files. Nothing else needs editing when a rule changes.
 
-### Updating tax rates each year
+- **`js/rules.js`** is the tax-rules database. Each rule has a summary, source, URL, date verified, tax year, jurisdiction, status (`law`, `proposed`, `guidance`, `historical`) and confidence. `VALUES` holds the numbers calculations use (vehicle limits, meals limit, GST threshold and rates, RRSP/TFSA/FHSA limits), each tied to its rule. `deadlines(taxYear)` derives the dated tasks. To change a rule: edit the entry, set `verified` to the day you checked the source, and add a `change` note so it appears under **Tax rule updates**.
+- **`js/tax-rates.js`** holds one table per tax year: federal and provincial brackets, basic personal amounts, CPP. Copy the latest block for a new year. A table can also be overridden on the device under **Settings > Edit tax rate table**.
 
-Rates are data, not logic:
+The app does not check the internet for rule changes. The "verified" date shown beside every rule says how fresh it is.
 
-- `js/tax-rates.js` holds one table per tax year (federal and provincial brackets, basic personal amounts, CPP). Copy the latest block, change the year, and replace the numbers from the CRA pages linked at the top of that file.
-- Or, without touching code: **Settings > Edit tax rate table** saves a custom table for the selected year on your device.
-- If a year has no table yet, the estimate uses the latest one and says so.
+Rules were last verified against canada.ca on 2026-10-04. Known limits of that check:
 
-The 2026 table was taken from canada.ca on 2026-10-01. Quebec is not modelled; Ontario surtax and health premium are not modelled.
-
-### Updating vehicle CCA rules
-
-`js/cca.js` holds the CCA classes and rates, the passenger-vehicle cost limit by year, the zero-emission limit and the first-year rule in `CCA_RULES`, plus the date they were last checked. Add each year's cost limit when it is announced (2026 was not confirmed on 2026-10-01, so the 2025 limit is used and flagged). The likely class comes from CRA's vehicle definitions chart; when the answers the chart needs are missing, the app says so instead of guessing.
-
-### Updating equipment rules
-
-`js/equip.js` holds the equipment categories, the likely CCA class for each (50, 8, 12, 46) and the rates in `EQUIP_RULES`. Items the rules cannot place get no class and the app says so. Accessories and similar items under `smallCost` ($200) are treated as likely current expenses; that cut-off is the app's own working threshold, not a CRA rule, and can be changed there.
-
-### Updating expense guidance
-
-`js/reference.js` holds the expense categories, warnings, documentation reminders, CRA links and the "Could I write this off?" catalogue. Edit the text there; the forms, review and reference screens all read from it.
+- The **Productivity Mega Deduction** (announced 2026-09-15) is draft legislation, labelled PROPOSED / NOT YET ENACTED, and not used in any calculation. Its exclusion of certain Class 10 and 10.1 vehicles was read from a summary of the draft and should be confirmed.
+- First-year CCA: CRA's Accelerated Investment Incentive page predates Budget 2025. The app uses the half-year rule unless you choose the full first-year rate on an asset.
+- CRA had not yet published its dated deadline page for the 2026 tax year; the 2027 dates follow the standing rules.
+- Quebec is not modelled. Ontario surtax and health premium are not modelled.
 
 ## How the numbers are worked out
 
-- **Income** counts only payments marked *Received*. USD payments are converted only with the rate, or the CAD amount, that you entered for that payment. A USD payment with neither is left out of CAD totals and flagged.
-- **Business-use % of vehicle** = business km / total km. Business km come from the trip log. Total km come from the year totals you enter (odometer at start and end of year, or a total); without those the percentage only reflects logged trips and is flagged as unreliable.
-- **Vehicle expenses**: each is either prorated by the business-use %, counted 100% (for example parking at a client), or personal.
-- **Other expenses**: business 100%, mixed at the percentage you enter, or personal. The original amount and the business portion are both kept.
-- **In the estimate only**: meals count at 50% (changeable), equipment is left out as a likely capital item, home-office costs are left out unless you confirm in Settings that you qualify.
-- **Set-aside estimate** = estimated federal + provincial income tax + CPP on self-employment income, less tax you say you already paid. It applies only the basic personal amount and CPP; see the Tax estimate screen for what it leaves out.
-
-## Mileage and GPS
-
-- Trips can be entered by kilometres or by odometer readings (the most reliable record), or started and stopped live.
-- GPS is off by default and optional per trip. A web app can read location only while it is open on screen, so if the phone locks or you switch apps the measured distance will be short; the trip is then flagged and you confirm the distance or enter the odometer. Only the distance is kept: no coordinates or routes are stored or sent anywhere.
-- Automatic trip detection is not possible from a web app (no background location) and is not offered.
-- Each vehicle has its own trips, odometer readings and business-use %, and its expenses use its own percentage.
-
-## Receipt scanner
-
-**Scan Receipt** (dashboard and Expenses) takes or picks a photo, reads it, suggests a category and a tax-treatment status, and opens the normal expense form pre-filled for you to confirm. Scanned receipts are ordinary expense records with the original image attached.
-
-- Reading the text uses the open-source Tesseract.js library, loaded from a public CDN (jsdelivr) the first time you scan. The photo is processed in your browser and is not uploaded. Without a connection the receipt is still attached and you type the details.
-- Anything the reader could not find or was unsure of is marked "check" rather than guessed. PDF receipts are attached but not read.
-- Merchant-to-category rules and the status wording live in `js/scan.js`.
-
-## CRA and filing
-
-The app does not file returns and never connects to the CRA or asks for CRA sign-in details. CRA accepts electronically filed personal returns only from NETFILE-certified software. **CRA / Tax filing > Prepare My Taxes** produces a package (PDF organised by T2125 section, an Excel workbook, the mileage log and CSV files) to enter into certified software or give to an accountant. `buildPackage(year)` in `js/cra.js` returns the whole package as one data object, which is where an official integration would connect if CRA ever offers one.
+- **Income** counts only payments marked received. USD is converted only with the rate, or the CAD amount, you entered.
+- **Vehicle business use** = business km ÷ total km, per vehicle. Business km come from the trip log; total km from the year's odometer readings. Without odometer readings the percentage only reflects logged trips and is flagged.
+- **Vehicle expenses** are prorated by that percentage, counted in full (business parking), or personal.
+- **Other expenses** are business, mixed at your percentage, or personal. Meals count at 50%.
+- **Equipment and vehicles** are capital property: `js/equip.js` and `js/cca.js` suggest a CCA class you can override, and **Assets & CCA** shows opening UCC, additions, dispositions, CCA and closing UCC. Each asset's balance is tracked separately; CRA pools a class, so recapture and terminal loss on a sale are shown as "possible".
+- **Business-use-of-home** needs one of CRA's two conditions, uses area (and hours, for a shared space), and is capped at net business income before the claim; the rest carries forward.
+- **GST/HST**: the app asks whether you are registered. If you are, it estimates tax collected less input tax credits from the amounts typed on records. GST on capital purchases is left out because it follows a primary-use rule.
+- **Tax estimate** = federal + provincial income tax + CPP on self-employment income, with only the basic personal amount, CPP, and any RRSP/FHSA/other deductions you enter.
 
 ## Record links (no double counting)
-
-Every record has a unique ID. Records created by another record store where they came from:
 
 ```
 Installation --> Income record (payment)    sourceType: installation
              --> Trip record (travel km)     sourceType: installation
-Recurring    --> Income record per month     sourceType: recurring, period: YYYY-MM
-Subscription --> Expense record per payment  sourceType: subscription, period: YYYY-MM
-Equipment and vehicle assets are their own records and are never also entered as expenses.
+Recurring    --> Income record per month     sourceType: recurring
+Subscription --> Expense record per payment  sourceType: subscription
+Equipment and vehicle assets are their own records, never also entered as expenses.
 ```
-
-Linked income and trips are edited through their installation, so the payment and kilometres exist once. Recurring schedules only produce *expected* payments; they become income when you confirm receipt. The CSV exports include the record IDs and source IDs.
 
 ## Project layout
 
 ```
 index.html            app shell
-css/app.css           all styles (light/dark tokens at the top)
-js/app.js             startup, routing, theme, year selector
-js/db.js              IndexedDB storage (the only storage code)
+css/app.css           all styles; colour and spacing tokens at the top
+sw.js                 offline cache (app files only)       <- bump CACHE on every change
+
+Data and rules
+js/rules.js           tax-rules database with sources      <- update when rules change
+js/tax-rates.js       yearly bracket and CPP tables        <- update yearly
+js/reference.js       expense categories and per-category guidance
+js/db.js              IndexedDB (the only storage code)
 js/store.js           state, saving, record linking, backup/restore
-js/calc.js            totals, vehicle %, expense portions, tax estimate
-js/tax-rates.js       yearly rate tables            <- update yearly
-js/cca.js             vehicle CCA rules, classification, forecast, deduction assessment
-js/assets.js          Vehicle assets & CCA screens
-js/mileage.js         mileage tracker: Start/Stop trips, optional GPS, history, vehicles
-js/equip.js           equipment rules, likely tax treatment, CCA, subscriptions <- update when rules change
-js/equipment.js       Equipment & technology screens and report
-js/cra.js             CRA / Tax filing screen and the year-end tax package
-js/scan.js            receipt scanner: OCR, category suggestions, tax-treatment status, review queue
-js/xlsx.js            small built-in Excel (.xlsx) writer
-js/reference.js       categories + expense guidance <- update when rules change
+
+Calculations (no screens)
+js/calc.js            totals, vehicle %, expense portions, home office, tax estimate
+js/cca.js             vehicle classification, CCA schedule, purchase assessment
+js/equip.js           equipment treatment, CCA schedule, subscriptions
+
+Screens
+js/app.js             startup, routing, navigation, theme, year selector
+js/dashboard.js       dashboard, quick-add sheet, business profile
+js/views.js           income, expenses, customers, installations, recurring, months
+js/views2.js          tax estimate, year-end checklist, export, settings
 js/forms.js           add/edit forms
+js/mileage.js         trip log, Start/Stop trips, vehicles and odometers
+js/assets.js          vehicle assets
+js/equipment.js       equipment and subscriptions
+js/ccaview.js         Assets & CCA schedule by class
+js/deduct.js          "Can I deduct this?" (topics, questions, evaluation, screen)
+js/home.js            home office and phone & internet calculators
+js/gst.js             GST/HST
+js/reminders.js       reminder centre, smart checks, calendar export
+js/learn.js           knowledge centre, tax rule updates, sources
+js/scan.js            receipt scanner and review queue
+js/cra.js             year-end tax package (PDF, Excel)
+js/export.js          CSV files, PDF summary, backup
+
+Shared
 js/ui.js              form builder, dialogs, receipts
-js/views.js           dashboard and record lists
-js/views2.js          tax estimate, year-end review, reference, export, settings
-js/charts.js          SVG charts
-js/export.js          CSV, PDF summary, backup file
-js/pdf.js             small built-in PDF writer
-js/lock.js            optional PIN lock
-sw.js                 offline cache (app files only)
+js/charts.js  js/pdf.js  js/xlsx.js  js/lock.js  js/util.js
 dev/serve.ps1         local preview server
 ```
 
 ## Not included
 
-- Reading PDF receipts automatically (photos are read; PDFs are attached only).
-- Recapture or terminal loss when a vehicle or equipment is sold, automatic trip detection, direct filing with the CRA, GST/HST tracking and filing, and anything for Quebec provincial tax.
+- Push notifications. A static web app cannot send them; **Reminders > Add dates to calendar** exports the deadlines so the phone's calendar can.
+- Sync between devices, accounts, or cloud storage.
+- More than one business profile. Records are not tagged per business.
+- Corporations and partnerships: the estimates assume a sole proprietor.
+- Reading PDF receipts (photos are read; PDFs are attached only). Automatic trip detection. Filing with the CRA or filing a GST/HST return.
+- Pooled CCA classes, the vehicle lease-cost formula (T2125 Chart C), and the daily vehicle-interest limit calculation.
 
 ## Disclaimer
 

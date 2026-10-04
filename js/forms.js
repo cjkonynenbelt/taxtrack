@@ -2,8 +2,9 @@
 
 import { state, all, byId, save, remove, resolveCustomer, customerName, customerRefs, saveInstallation, fxFields } from './store.js';
 import { openForm, confirmDialog, toast, finalizeReceipt } from './ui.js';
-import { INCOME_TYPES, VEHICLE_CATEGORIES, OTHER_CATEGORIES, CATEGORIES, VEHICLE_INFO, VERIFY } from './reference.js';
+import { INCOME_TYPES, VEHICLE_CATEGORIES, OTHER_CATEGORIES, CATEGORIES, VEHICLE_INFO, VERIFY, PAY_METHODS, VERIFY_STATUS } from './reference.js';
 import { kmSummary } from './calc.js';
+import { assetName } from './cca.js';
 import { today, money, num, esc, yearOf, round2, monthLabel } from './util.js';
 
 const CUR = [{ value: 'CAD', label: 'CAD' }, { value: 'USD', label: 'USD' }];
@@ -69,7 +70,10 @@ export function incomeForm(rec = {}) {
       { name: 'payer', label: 'Payer / company', type: 'text', list: uniq(all('income').map(i => i.payer)) },
       { name: 'customerName', label: 'Business / customer this is for', type: 'text', list: customerNames(), hint: 'Type a new name to add it to Customers.' },
       { name: 'description', label: 'Description', type: 'text' },
-      { name: 'receipt', label: 'Document (optional)', type: 'receipt' },
+      { name: 'gst', label: 'GST/HST collected (included in the amount)', type: 'number', showIf: () => state.settings.gst.registered, hint: 'Only if you charged GST/HST on this payment.' },
+      { name: 'payMethod', label: 'How you were paid', type: 'select', options: ['', ...PAY_METHODS.filter(m => !m.includes('credit card'))], advanced: true },
+      { name: 'invoiceNo', label: 'Invoice / statement number', type: 'text', advanced: true },
+      { name: 'receipt', label: 'Invoice, statement or document (optional)', type: 'receipt' },
       { name: 'notes', label: 'Notes', type: 'textarea' },
     ],
     async onSave(v, orig) {
@@ -119,12 +123,12 @@ export function expenseForm(rec = {}, extra = {}) {
     fields: [
       { name: 'group', label: 'Expense type', type: 'seg', options: [{ value: 'vehicle', label: 'Vehicle' }, { value: 'other', label: 'Other business' }] },
       { name: 'category', label: 'Category', type: 'select', options: v => (isVeh(v) ? VEHICLE_CATEGORIES : OTHER_CATEGORIES) },
-      { name: 'amount', label: 'Amount (incl. tax)', type: 'number', required: true, focus: true, half: true },
+      { name: 'amount', label: 'Total paid (incl. tax)', type: 'number', required: true, focus: true, half: true },
       { name: 'currency', label: 'Currency', type: 'seg', options: CUR, half: true },
       ...fxDefs(usd),
       { name: 'vendor', label: 'Vendor', type: 'text', list: uniq(all('expense').map(e => e.vendor)) },
       { name: 'useVehicle', label: 'How should this be counted?', type: 'seg', options: VEHICLE_USE, showIf: isVeh, hint: 'Business-use % applies your business km ÷ total km for the year.' },
-      { name: 'useOther', label: 'Business or personal?', type: 'seg', options: OTHER_USE, showIf: v => !isVeh(v) },
+      { name: 'useOther', label: 'Was this to earn business income?', type: 'seg', options: OTHER_USE, showIf: v => !isVeh(v) },
       { name: 'businessPct', label: 'Business-use %', type: 'number', placeholder: 'e.g. 60', showIf: v => !isVeh(v) && v.useOther === 'mixed' },
       {
         name: 'portion', type: 'info', render: v => {
@@ -135,9 +139,12 @@ export function expenseForm(rec = {}, extra = {}) {
             const k = kmSummary(yearOf(v.date) || s.year);
             return `Estimated business portion at ${num(k.pct * 100, 1)}% business use: <strong>${money(v.amount * k.pct, cur)}</strong> of ${money(v.amount, cur)}. Changes as you log kilometres.`;
           }
-          if (v.useOther !== 'mixed') return '';
-          const p = Math.min(100, Math.max(0, v.businessPct || 0));
-          return `Original amount: <strong>${money(v.amount, cur)}</strong> &middot; potential business portion (${p}%): <strong>${money(v.amount * p / 100, cur)}</strong>`;
+          if (v.useOther === 'personal') return '';
+          const p = v.useOther === 'mixed' ? Math.min(100, Math.max(0, v.businessPct || 0)) : 100;
+          const info = CATEGORIES[v.category] || {};
+          const limit = info.meals ? s.mealsPct : 100;
+          if (p === 100 && limit === 100) return '';
+          return `Total expense <strong>${money(v.amount, cur)}</strong> &middot; business portion (${p}%) <strong>${money(v.amount * p / 100, cur)}</strong> &middot; potentially deductible${limit < 100 ? ` (${limit}% limit)` : ''} <strong>${money(v.amount * p / 100 * limit / 100, cur)}</strong>`;
         },
       },
       ...(extra.fields || []),
@@ -155,13 +162,25 @@ export function expenseForm(rec = {}, extra = {}) {
       { name: 'date', label: 'Date', type: 'date', required: true, half: true },
       { name: 'vehicle', label: 'Vehicle', type: 'select', options: () => s.vehicles, showIf: isVeh, half: true },
       { name: 'purpose', label: 'Business purpose', type: 'text', placeholder: 'What was this for?' },
-      { name: 'tax', label: 'GST/HST included (optional)', type: 'number', advanced: true },
+      { name: 'attendees', label: 'Who attended (names and their business)', type: 'text', showIf: v => !isVeh(v) && !!(CATEGORIES[v.category] || {}).meals, hint: 'Record who was there and the business reason. A meal with no business reason is personal.' },
+      { name: 'destination', label: 'Destination', type: 'text', showIf: v => !isVeh(v) && v.category === 'Travel', half: true },
+      { name: 'tripDates', label: 'Trip dates', type: 'text', placeholder: 'e.g. Oct 5 to 7', showIf: v => !isVeh(v) && v.category === 'Travel', half: true },
+      { name: 'personalDays', label: 'Personal days on the trip', type: 'number', showIf: v => !isVeh(v) && v.category === 'Travel', hint: 'Costs of personal days are not business travel. Use Mixed and a business-use % if the trip was not all business.' },
+      { name: 'subtotal', label: 'Amount before tax', type: 'number', advanced: true, half: true },
+      { name: 'tax', label: 'GST/HST', type: 'number', advanced: true, half: true },
+      { name: 'otherTax', label: 'Other tax (PST, levies)', type: 'number', advanced: true, half: true },
+      { name: 'payMethod', label: 'Payment method', type: 'select', options: ['', ...PAY_METHODS], advanced: true, half: true },
+      { name: 'assetId', label: 'Related asset (optional)', type: 'select', advanced: true, options: () => [{ value: '', label: 'None' }, ...all('equip').map(q => ({ value: q.id, label: q.name || q.category })), ...all('asset').map(a => ({ value: a.id, label: assetName(a) }))] },
+      { name: 'reference', label: 'Reference (invoice or confirmation number)', type: 'text', advanced: true },
+      { name: 'verification', label: 'Verification status', type: 'select', options: VERIFY_STATUS, advanced: true },
       { name: 'customerName', label: 'Customer / business (optional)', type: 'text', list: customerNames(), advanced: true },
       { name: 'project', label: 'Project (optional)', type: 'text', list: uniq(all('expense').map(e => e.project)), advanced: true, hint: 'Pick an existing project or type a new name.' },
       { name: 'needsReview', type: 'check', label: 'Needs review', checkLabel: 'Not sure about this one - keep it in Expenses Needing Review', advanced: true },
       { name: 'notes', label: 'Notes', type: 'textarea', advanced: true },
     ],
     onChange(v, set, name) {
+      // Before-tax + taxes fill in the total; the total stays editable.
+      if (['subtotal', 'tax', 'otherTax'].includes(name) && v.subtotal != null) set('amount', round2((v.subtotal || 0) + (v.tax || 0) + (v.otherTax || 0)));
       if (name !== 'category' && name !== 'group') return;
       // Sensible starting points only - always editable.
       if (isVeh(v)) set('useVehicle', ['Parking', 'Tolls'].includes(v.category) ? 'business' : 'shared');
@@ -175,6 +194,8 @@ export function expenseForm(rec = {}, extra = {}) {
       const use = isVeh(v) ? v.useVehicle : v.useOther;
       if (use === 'mixed' && !(v.businessPct > 0 && v.businessPct <= 100)) throw new Error('Enter a business-use % between 1 and 100.');
       if (use !== 'personal') requireFx(v, 'you paid');
+      if ((v.tax || 0) + (v.otherTax || 0) > v.amount) throw new Error('The taxes are more than the total paid. Check the amounts.');
+      if (v.subtotal == null && (v.tax || v.otherTax)) v.subtotal = round2(v.amount - (v.tax || 0) - (v.otherTax || 0));
       await finalizeReceipt(v, orig.receiptId);
       const { customerName: cn, useVehicle, useOther, fxLine, portion, guide, receipt, treatmentInfo, scanInfo, ...clean } = v;
       if (v.scan) {

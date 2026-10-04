@@ -8,19 +8,34 @@ import * as m from './mileage.js';
 import * as q from './equipment.js';
 import * as c from './cra.js';
 import * as sc from './scan.js';
+import * as dash from './dashboard.js';
+import * as d from './deduct.js';
+import * as g from './gst.js';
+import * as hm from './home.js';
+import * as rm from './reminders.js';
+import * as ln from './learn.js';
+import * as cv from './ccaview.js';
 import { requireUnlock } from './lock.js';
 import { $, $$, yearOf } from './util.js';
 
 const routes = {
-  home: v1.home, income: v1.income, trips: m.mileage, expenses: v1.expenses,
+  home: dash.home, income: v1.income, trips: m.mileage, expenses: v1.expenses,
   customers: v1.customers, customer: v1.customer, installations: v1.installations,
   recurring: v1.recurring, months: v1.months, month: v1.month, more: v1.more,
   assets: v3.assets, asset: v3.asset,
   equipment: q.equipment, equip: q.equipItem, techreport: q.techReport, cra: c.cra, 'needs-review': sc.needsReview,
-  tax: v2.tax, review: v2.review, reference: v2.reference, export: v2.exportView, settings: v2.settings,
+  tax: v2.tax, review: v2.review, reference: d.deduct, deduct: d.deduct, export: v2.exportView, settings: v2.settings,
+  gst: g.gst, homeoffice: hm.homeOffice, phone: hm.phone, reminders: rm.remindersView,
+  learn: ln.learn, updates: ln.updatesView, sources: ln.sources, cca: cv.ccaView,
 };
 // Which bottom-nav tab is highlighted for each route.
-const TAB = { home: 'home', income: 'income', trips: 'trips', expenses: 'expenses' };
+const TAB = { home: 'home', trips: 'trips', expenses: 'expenses' };
+// Detail screens highlight their parent section in the sidebar.
+const PARENT = { customer: 'customers', month: 'months', asset: 'cca', assets: 'cca', equipment: 'cca', equip: 'cca', techreport: 'cca', 'needs-review': 'expenses', reference: 'deduct', sources: 'learn' };
+
+function paintNav() {
+  $('.side').innerHTML = `<a href="#/home" data-tab="home">Dashboard</a>${v1.SECTIONS.map(([title, items]) => `${title ? `<h3>${title}</h3>` : '<hr>'}${items.map(([r, t]) => `<a href="#/${r}" data-tab="${r}">${t}</a>`).join('')}`).join('')}`;
+}
 
 const root = $('#view');
 
@@ -44,10 +59,14 @@ function render() {
   const [name = 'home', param] = location.hash.replace(/^#\/?/, '').split('/');
   const view = routes[name] || routes.home;
   root.onclick = null;
-  document.body.classList.remove('on-home'); // the dashboard sets this for its own white background
   view(root, param ? decodeURIComponent(param) : undefined);
   const tab = TAB[name] || (routes[name] ? 'more' : 'home');
-  $$('[data-tab]').forEach(a => a.classList.toggle('on', a.dataset.tab === tab || a.dataset.tab === name));
+  const section = PARENT[name] || name;
+  $$('[data-tab]').forEach(a => a.classList.toggle('on', a.dataset.tab === (a.closest('.bottom') ? tab : section)));
+  const n = rm.counts().issues;
+  const badge = $('[data-count]');
+  badge.hidden = !n;
+  badge.textContent = n;
   applyTheme();
   paintYears();
 }
@@ -56,7 +75,9 @@ async function start() {
   await load();
   applyTheme();
   await requireUnlock();
+  paintNav();
   $('#app').hidden = false;
+  $('[data-add]').addEventListener('click', dash.quickAdd);
 
   $('#year').addEventListener('change', async e => { state.settings.year = Number(e.target.value); await saveSettings(); });
   window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });

@@ -10,6 +10,7 @@
 //  - CCA classes, limits, personal use: guide T4002 chapter 4 (Rev. 25)
 
 import { round2 } from './util.js';
+import { VALUES, yearValue } from './rules.js';
 
 const CRA = 'https://www.canada.ca/en/revenue-agency/services';
 export const CCA_RULES = {
@@ -27,8 +28,9 @@ export const CCA_RULES = {
   },
   // Passenger-vehicle capital cost limit before sales tax, by year acquired.
   // Add each new year when Finance/CRA announce it.
-  passengerLimit: { 2024: 37000, 2025: 38000 },
-  zevLimit: 61000,
+  // Limits live in rules.js (VALUES.vehicle) with their source and verified date.
+  passengerLimit: VALUES.vehicle.passengerCcaLimit,
+  zevLimit: yearValue(VALUES.vehicle.zevCcaLimit, 2026).value,
   // Share of a full year's CCA allowed in the year of purchase.
   //   half - the standard half-year rule (confirmed, and the cautious default)
   //   full - half-year rule suspended under the accelerated investment incentive (verify it applies)

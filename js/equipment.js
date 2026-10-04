@@ -70,7 +70,9 @@ export function equipForm(rec = {}) {
       { name: 'treatment', label: 'Treat as', type: 'select', advanced: true, half: true, options: [{ value: 'auto', label: 'Automatic (likely treatment)' }, { value: 'current', label: 'Current expense' }, { value: 'capital', label: 'Capital asset (CCA)' }] },
       { name: 'clsOverride', label: 'CCA class', type: 'select', advanced: true, half: true, options: [{ value: 'auto', label: 'Automatic' }, ...Object.entries(EQUIP_RULES.classes).map(([k, c]) => ({ value: k, label: c.label.split(' - ')[0] }))] },
       { name: 'firstYearRule', label: 'First-year CCA rule', type: 'seg', advanced: true, options: [{ value: 'half', label: 'Half-year rule' }, { value: 'full', label: 'Full first year' }] },
-      { name: 'disposedYear', label: 'Year sold or scrapped (if any)', type: 'number', advanced: true },
+      { name: 'availableDate', label: 'Available-for-use date (if later than purchase)', type: 'date', advanced: true, hint: 'CCA starts when the item is delivered and able to be used.' },
+      { name: 'disposedYear', label: 'Year sold or scrapped (if any)', type: 'number', advanced: true, half: true },
+      { name: 'salePrice', label: 'Sale price (0 if scrapped)', type: 'number', advanced: true, half: true },
     ],
     onChange(v) { v.amount = (v.price || 0) + (v.salesTax || 0); }, // the exchange-rate line converts price + tax
     async onSave(v, orig) {

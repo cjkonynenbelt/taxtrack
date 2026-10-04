@@ -63,7 +63,9 @@ export function assetForm(rec = {}) {
       { name: 'odoPurchase', label: 'Odometer at purchase', type: 'number', advanced: true, half: true },
       { name: 'odoCurrent', label: 'Current odometer', type: 'number', advanced: true, half: true },
       { name: 'firstYearRule', label: 'First-year CCA rule', type: 'seg', advanced: true, options: [{ value: 'half', label: 'Half-year rule' }, { value: 'full', label: 'Full first year' }], hint: 'Half-year rule is the standard, cautious default. Choose "Full first year" only if your accountant confirms a first-year incentive applies.' },
-      { name: 'disposedYear', label: 'Year sold or traded (if any)', type: 'number', advanced: true },
+      { name: 'availableDate', label: 'Available-for-use date (if later than purchase)', type: 'date', advanced: true, hint: 'CCA starts when the vehicle is available for use, normally the day you take delivery.' },
+      { name: 'disposedYear', label: 'Year sold or traded (if any)', type: 'number', advanced: true, half: true },
+      { name: 'salePrice', label: 'Sale / trade-in price', type: 'number', advanced: true, half: true },
       { name: 'notes', label: 'Notes', type: 'textarea', advanced: true },
     ],
     async onSave(v, orig) {

@@ -289,7 +289,7 @@ export function paintBanner() {
   clearInterval(bannerTimer);
   if (!a) { el.innerHTML = ''; el.hidden = true; return; }
   el.hidden = false;
-  el.innerHTML = `<div class="live"><span data-live></span><button class="btn" data-stop>STOP TRIP</button></div>`;
+  el.innerHTML = `<div class="live"><span data-live></span><button class="btn" data-stop>Stop trip</button></div>`;
   const tick = () => {
     const secs = Math.max(0, Math.floor((Date.now() - new Date(a.startedAt)) / 1000));
     const t = `${Math.floor(secs / 3600)}:${String(Math.floor(secs / 60) % 60).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`;
@@ -361,7 +361,7 @@ export function mileage(root) {
   root.innerHTML = `
     ${head('Mileage', '', `Tax year ${Y()}`)}
     <div class="quick three">
-      <button class="quick-btn start" data-act="${a ? 'stop' : 'start'}">${a ? 'STOP TRIP' : '🚗 START TRIP'}</button>
+      <button class="quick-btn start" data-act="${a ? 'stop' : 'start'}">${a ? 'Stop trip' : 'Start trip'}</button>
       <button class="quick-btn alt" data-act="add">+ Add trip</button>
       <button class="quick-btn alt" data-act="repeat">Repeat last trip</button>
     </div>

@@ -1,13 +1,10 @@
 // Screens: dashboard and the record lists. Each view renders into `root`.
 
-import { state, all, byId, customerName, expectedPayments, isDue, skipExpected, saveQuiet } from './store.js';
-import { summary, inYear, cadOf, expenseParts, kmSummary, monthSummary, customerTotals, normVehicle } from './calc.js';
-import { tripForm, startTripForm, stopTripForm, activeTrip } from './mileage.js';
-import { equipForm } from './equipment.js';
+import { state, all, byId, customerName, expectedPayments, isDue, skipExpected } from './store.js';
+import { summary, inYear, cadOf, expenseParts, kmSummary, monthSummary, customerTotals } from './calc.js';
 import { scanReceipt, reviewQueue } from './scan.js';
 import { incomeForm, expenseForm, customerForm, installationForm, recurringForm, confirmExpected } from './forms.js';
-import { confirmDialog, viewReceipt, modal } from './ui.js';
-import { monthBars, rankBars, splitBar } from './charts.js';
+import { confirmDialog, viewReceipt } from './ui.js';
 import { INCOME_TYPES, VEHICLE_CATEGORIES, OTHER_CATEGORIES, VEHICLE_INFO } from './reference.js';
 import { $, $$, esc, money, num, pct, MONTHS, monthKey, monthLabel, fmtDate, sum, groupBy } from './util.js';
 
@@ -126,201 +123,6 @@ function wire(root, actions) {
 }
 const expActions = { 'confirm-exp': id => expectedAction('confirm-exp', id), 'skip-exp': id => expectedAction('skip-exp', id) };
 
-// ---- dashboard -------------------------------------------------------------
-
-// Small line icons for the dashboard actions (inherit the button's text colour).
-const icon = d => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
-const ICONS = {
-  camera: icon('<path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>'),
-  plus: icon('<path d="M12 5v14M5 12h14"/>'),
-  car: icon('<path d="M5 16V11l2-5h10l2 5v5"/><path d="M3 16h18"/><circle cx="7.5" cy="17.5" r="1.5"/><circle cx="16.5" cy="17.5" r="1.5"/>'),
-};
-
-export function home(root) {
-  const s = summary(Y());
-  const t = s.tax;
-  const hasData = s.income.count || s.exp.items.length || s.km.loggedBiz;
-
-  // Everything below is counted from the records for the selected tax year.
-  const exps = inYear('expense', Y());
-  const biz = exps.filter(e => e.use !== 'personal');
-  const queue = reviewQueue().filter(x => x.e.date.slice(0, 4) === String(Y()));
-  const queued = new Set(queue.map(x => x.e.id));
-  const deductions = s.exp.est + s.cca.counted + s.equip.counted;
-  const equipBought = s.equip.rows.filter(r => r.purchased);
-  const receipts = exps.filter(e => e.receiptId).length + equipBought.filter(r => r.e.receiptId).length;
-  const categorized = exps.filter(e => e.group === 'vehicle' || e.category !== 'Other').length;
-  const missing = biz.filter(e => !e.receiptId).length;
-  const counts = {};
-  for (const e of exps) { const k = e.category === 'Meals & entertainment' ? 'Meals' : e.category; counts[k] = (counts[k] || 0) + 1; }
-  const cats = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  const chip = (n, label) => `<span class="chip"><strong>${n}</strong>${esc(label)}</span>`;
-  const reviewAmount = sum(queue, x => cadOf(x.e) || 0);
-  const capitalAmount = sum(equipBought.filter(r => r.t.kind === 'capital'), r => r.t.cost || 0)
-    + sum(biz.filter(e => e.category === 'Computer/equipment'), e => cadOf(e) || 0)
-    + sum(all('asset').filter(a => a.status !== 'potential' && String(a.purchaseDate || '').slice(0, 4) === String(Y())), a => (Number(a.price) || 0) + (Number(a.salesTax) || 0));
-  const recent = newestFirst(exps).slice(0, 5);
-  const veh = [...s.km.vehicles].sort((a, b) => b.business - a.business || b.total - a.total)[0];
-  const vehItems = s.exp.items.filter(x => x.e.group === 'vehicle' && x.e.use !== 'personal' && normVehicle(x.e.vehicle) === (veh && veh.name));
-  const reviewPct = exps.length ? (exps.length - queue.length) / exps.length : null;
-  const dupes = queue.filter(x => x.reasons.includes('Possible duplicate')).length;
-  const capitals = queue.filter(x => x.reasons.some(r => r.startsWith('Possible capital asset'))).length;
-  const dueIncome = s.expected.filter(x => isDue(x.period)).length;
-  const alerts = [
-    [queue.length, `${queue.length} expense${queue.length === 1 ? ' needs' : 's need'} review`, '#/needs-review'],
-    [s.exp.vehicleTotal > 0 && s.km.totalIsWeak, 'Odometer readings missing for the year', '#/trips'],
-    [missing, `${missing} expense${missing === 1 ? '' : 's'} missing a receipt`, '#/expenses'],
-    [dupes, `${dupes} possible duplicate receipt${dupes === 1 ? '' : 's'}`, '#/needs-review'],
-    [capitals, `${capitals} purchase${capitals === 1 ? '' : 's'} may be a capital asset`, '#/needs-review'],
-    [s.income.unconverted, `${s.income.unconverted} USD payment${s.income.unconverted === 1 ? '' : 's'} missing an exchange rate`, '#/income'],
-    [dueIncome, `${dueIncome} expected payment${dueIncome === 1 ? '' : 's'} to confirm`, '#/recurring'],
-  ].filter(a => a[0]);
-  const linkRow = (label, value, act) => `<button class="row" data-act="${act}"><span class="row-main"><span class="row-title">${label}</span></span><span class="row-amt"><strong>${value} &rsaquo;</strong></span></button>`;
-  const line = (l, v) => `<div class="line"><span>${l}</span><span>${v}</span></div>`;
-
-  root.innerHTML = `
-    <div class="d">
-      <header class="d-hero">
-        <p class="d-label">Potential deductions &middot; ${Y()}</p>
-        <h1 class="d-total">${money(deductions)}</h1>
-        <p class="d-meta">${exps.length} expense${exps.length === 1 ? '' : 's'} &middot; ${receipts} receipt${receipts === 1 ? '' : 's'} &middot; estimates only</p>
-      </header>
-      <div class="d-actions">
-        <button class="d-btn primary" data-act="scan">${ICONS.camera}<span>Scan Receipt</span></button>
-        <button class="d-btn" data-act="add-expense">${ICONS.plus}<span>Add Expense</span></button>
-      </div>
-      <button class="d-morebtn" data-act="more-actions">${activeTrip() ? 'Trip in progress &middot; more actions' : 'Mileage, income and more'}</button>
-
-      ${alerts.length ? `<section class="d-sec">
-        <h2 class="d-h">Needs review</h2>
-        <div class="d-list">${alerts.slice(0, 4).map(([, text, href]) => `<a class="d-row" href="${href}"><span class="d-dot"></span><span class="d-main">${esc(text)}</span><span class="d-chev">&rsaquo;</span></a>`).join('')}</div>
-      </section>` : ''}
-
-      <section class="d-sec">
-        <div class="d-hrow"><h2 class="d-h">Recent expenses</h2>${recent.length ? '<a href="#/expenses">View all</a>' : ''}</div>
-        <div class="d-list">${recent.length ? recent.map(e => `<button class="d-row" data-act="edit-expense" data-id="${e.id}">
-          <span class="d-main"><strong>${esc(e.vendor || e.category)}</strong><small>${e.group === 'vehicle' ? 'Vehicle &middot; ' : ''}${esc(e.category)}${queued.has(e.id) ? ' &middot; <em>needs review</em>' : e.use === 'personal' ? ' &middot; personal' : ''}</small></span>
-          <span class="d-amt"><strong>${money(e.amount, e.currency)}</strong><small>${fmtDate(e.date).split(',')[0]}</small></span></button>`).join('')
-          : `<p class="d-empty">No expenses yet. Scan a receipt or add one to get started.</p>`}</div>
-      </section>
-
-      <section class="d-sec">
-        <h2 class="d-h">This year</h2>
-        <div class="d-list">
-          <a class="d-row" href="#/income"><span class="d-main">Income received</span><span class="d-amt"><strong>${money(s.income.cad)}</strong></span></a>
-          <a class="d-row" href="#/tax"><span class="d-main">Estimated net income</span><span class="d-amt"><strong>${money(s.net)}</strong></span></a>
-          <a class="d-row" href="#/tax"><span class="d-main">Set aside for taxes</span><span class="d-amt"><strong>${money(t.setAside)}</strong></span></a>
-          <a class="d-row" href="#/trips"><span class="d-main">Business driving</span><span class="d-amt"><strong>${num(s.km.business)} km</strong><small>${pct(s.km.pct)} business use</small></span></a>
-        </div>
-      </section>
-    </div>
-
-    <details class="d-details"${state.settings.dashDetails ? ' open' : ''}>
-    <summary>Full breakdown and charts</summary>
-    ${expectedBlock(Y(), { limit: 3 })}
-    <div class="dash-grid">
-      <section class="panel">
-        <h2>Tax overview</h2>
-        ${linkRow('Potential deductions', money(deductions), 'go-deductions')}
-        ${linkRow('Needs review', money(reviewAmount), 'go-review')}
-        ${linkRow('Likely personal', money(s.exp.personalTotal), 'go-personal')}
-        ${linkRow('Potential capital assets', money(capitalAmount), 'go-capital')}
-      </section>
-      <section class="panel${alerts.length ? ' notice' : ''}">
-        <h2>${alerts.length ? 'Needs attention' : 'Everything looks good'}</h2>
-        ${alerts.length ? alerts.map(([, text, href]) => `<a class="row" href="${href}"><span class="row-main"><span class="row-title alert">${esc(text)}</span></span><span class="row-amt">&rsaquo;</span></a>`).join('') : '<p class="muted">&#10003; Your current records are organized.</p>'}
-      </section>
-      <section class="panel">
-        <h2>Recent expenses <a class="link" href="#/expenses">View all &rarr;</a></h2>
-        ${recent.length ? recent.map(e => `<button class="row" data-act="edit-expense" data-id="${e.id}">
-          <span class="datebox"><b>${fmtDate(e.date).split(',')[0].split(' ')[0].toUpperCase()}</b>${Number(e.date.slice(8, 10))}</span>
-          <span class="row-main"><span class="row-title">${esc(e.vendor || e.category)}${queued.has(e.id) ? ' <span class="tag warn">Review</span>' : e.use === 'personal' ? ' <span class="tag">Personal</span>' : ''}</span><span class="row-sub">${e.group === 'vehicle' ? 'Vehicle / ' : ''}${esc(e.category)}</span></span>
-          <span class="row-amt"><strong>${money(e.amount, e.currency)}</strong></span></button>`).join('') : `<div class="empty-state"><p><strong>No expenses in ${Y()} yet</strong></p><p class="muted">Scan a receipt or add one by hand and it will show up here.</p><div class="btn-list"><button class="btn small primary" data-act="scan">Scan receipt</button><button class="btn small" data-act="add-expense">Add expense</button></div></div>`}
-      </section>
-      <section class="panel">
-        <h2>Receipt status</h2>
-        ${line('Receipts stored', receipts)}
-        ${line('Need review', queue.length)}
-        ${line('Business expenses missing a receipt', missing)}
-        ${line('Categorized', exps.length ? pct(categorized / exps.length, 0) : '—')}
-      </section>
-      ${veh ? `<section class="panel">
-        <h2>Vehicle <a class="link" href="#/trips">View vehicle &rarr;</a></h2>
-        <p><strong>${esc(veh.name)}</strong></p>
-        ${line('Business km', `${num(veh.business)} km`)}
-        ${line('Total km', `${num(veh.total)} km${veh.totalIsWeak && veh.total ? ' <small class="warn-text">logged trips only</small>' : ''}`)}
-        ${line('Business use', pct(veh.pct))}
-        ${line('Vehicle expenses', money(sum(vehItems, x => x.cad || 0)))}
-        ${line('Potential business portion', money(sum(vehItems, x => x.est)))}
-        ${s.km.vehicles.length > 1 ? `<p class="muted">All vehicles: ${num(s.km.business)} business km of ${num(s.km.total)} km (${pct(s.km.pct)}).</p>` : ''}
-      </section>` : ''}
-      <section class="panel">
-        <h2>${Y()} tax year</h2>
-        ${line('Income tracked', money(s.income.cad))}
-        ${line('Business expenses recorded', money(s.exp.businessTotal))}
-        ${line('Est. deductible vehicle expenses', money(s.exp.vehicleEst))}
-        ${line('Est. other deductible expenses', money(s.exp.otherEst))}
-        ${s.equip.rows.length || s.cca.rows.length ? line('Equipment &amp; vehicle CCA in the estimate', money(s.equip.counted + s.cca.counted)) : ''}
-        ${line('Potential deductions', money(deductions))}
-        ${line('Receipts', receipts)}
-        ${line('Review status', reviewPct == null ? '—' : `${pct(reviewPct, 0)} complete`)}
-        ${reviewPct == null ? '' : `<div class="progress"><span style="width:${Math.round(reviewPct * 100)}%"></span></div>`}
-      </section>
-    </div>
-    <section class="panel">
-      <h2>Income</h2>
-      <div class="stats">
-        ${stat('Total income received', money(s.income.cad), 'CAD', 'big')}
-        ${stat('Total USD income', money(s.income.usd, 'USD'))}
-        ${stat('CAD-converted USD income', money(s.income.usdConverted), s.income.unconverted ? `<span class="warn-text">${s.income.unconverted} payment(s) missing a rate</span>` : 'at the rates you recorded')}
-      </div>
-    </section>
-    <section class="panel">
-      <h2>Bottom line <a class="link" href="#/tax">Tax estimate</a></h2>
-      <div class="stats">
-        ${stat('Estimated net business income', money(s.net), '', 'big')}
-        ${stat('Estimated income tax', money(t.incomeTax), `federal + ${esc(t.provinceName)}`)}
-        ${stat('Estimated amount to save for taxes', money(t.setAside), `income tax + CPP${t.taxPaid ? ' less tax paid' : ''}`, 'big accent')}
-      </div>
-    </section>
-    ${hasData ? `
-    <div class="chart-grid">
-      <section class="panel"><h2>Income by month</h2>${monthBars(s.income.byMonth, { label: 'income' })}</section>
-      <section class="panel"><h2>Estimated deductible expenses by month</h2>${monthBars(s.exp.byMonth, { color: 'var(--accent-2)', label: 'expenses' })}</section>
-      <section class="panel"><h2>Income by customer</h2>${rankBars(Object.entries(s.income.byCustomer).map(([label, value]) => ({ label, value })))}</section>
-      <section class="panel"><h2>Expenses by category</h2>${rankBars([
-        ...Object.entries(s.exp.byCategory).map(([label, v]) => ({ label, value: v.total })),
-        ...Object.entries(s.exp.vehicleByCategory).map(([label, value]) => ({ label: `Vehicle: ${label}`, value })),
-      ], { color: 'var(--accent-2)' })}</section>
-      <section class="panel"><h2>Business vs personal kilometres</h2>${splitBar({ label: 'Business', value: s.km.business }, { label: 'Personal', value: s.km.personal }, v => `${num(v)} km`)}</section>
-      <section class="panel"><h2>USD vs CAD income <small>(CAD value)</small></h2>${splitBar({ label: 'Paid in USD', value: s.income.usdConverted }, { label: 'Paid in CAD', value: s.income.cadNative }, v => money(v, 'CAD', 0))}</section>
-    </div>` : `<section class="panel"><p class="muted">No records for ${Y()} yet. Use the buttons above to add your first income, trip or expense. Charts appear here once you have data.</p></section>`}
-    </details>
-    <p class="where muted">Your records are stored only in this browser on this device. <a href="#/export">Back up regularly</a>.</p>`;
-  document.body.classList.add('on-home');
-  const details = $('.d-details', root);
-  details.addEventListener('toggle', () => { state.settings.dashDetails = details.open; saveQuiet(); });
-  // Secondary actions live in one sheet so the dashboard keeps two main buttons.
-  const moreActions = () => {
-    const items = [
-      [activeTrip() ? 'stop-trip' : 'start-trip', activeTrip() ? 'Stop trip' : 'Start trip', activeTrip() ? stopTripForm : startTripForm],
-      ['add-trip', 'Add mileage', () => tripForm()], ['add-income', 'Add income', () => incomeForm()],
-      ['add-equip', 'Add equipment or asset', () => equipForm()], ['add-install', 'Add installation', () => installationForm()],
-    ];
-    const m = modal(`<div class="sheet-head"><h2>Add</h2><button class="icon-btn" data-close aria-label="Close">✕</button></div>
-      <div class="sheet-body"><div class="menu">${items.map(([k, label]) => `<button class="row" data-do="${k}"><span class="row-main"><span class="row-title">${label}</span></span><span class="row-amt">&rsaquo;</span></button>`).join('')}</div></div>`);
-    m.el.classList.add('small');
-    m.el.addEventListener('click', e => { const b = e.target.closest('[data-do]'); if (!b) return; m.close(); items.find(i => i[0] === b.dataset.do)[2](); });
-  };
-  wire(root, { 'more-actions': moreActions, 'start-trip': startTripForm, 'stop-trip': stopTripForm, 'add-income': () => incomeForm(), 'add-trip': () => tripForm(), 'add-expense': () => expenseForm(), 'add-install': () => installationForm(), 'add-equip': () => equipForm(), scan: scanReceipt, ...expActions,
-    'edit-expense': id => expenseForm(byId('expense', id)),
-    'go-deductions': () => { filters.expenses = { group: '' }; location.hash = '#/expenses'; },
-    'go-personal': () => { filters.expenses = { group: '', use: 'personal' }; location.hash = '#/expenses'; },
-    'go-review': () => { location.hash = '#/needs-review'; },
-    'go-capital': () => { location.hash = '#/equipment'; },
-  });
-}
-
 // ---- income ----------------------------------------------------------------
 
 export function income(root) {
@@ -383,12 +185,14 @@ export function expenses(root) {
       { name: 'use', label: 'Business, mixed & personal', options: [{ value: 'business', label: 'Business' }, { value: 'mixed', label: 'Mixed / business-use %' }, { value: 'personal', label: 'Personal' }] },
       { name: 'currency', label: 'Any currency', options: ['CAD', 'USD'] },
       { name: 'customer', label: 'All customers', options: customerOptions() },
+      { name: 'receipt', label: 'With or without receipt', options: [{ value: 'missing', label: 'Receipt missing' }, { value: 'has', label: 'Receipt attached' }] },
     ])}
     <div data-list></div>`;
   const paint = () => {
     const useOf = e => (e.use === 'shared' ? 'mixed' : e.use);
     const list = inYear('expense', Y()).filter(e => passes(e, st, `${e.vendor} ${e.category} ${e.purpose} ${e.notes} ${e.amount} ${e.id}`)
-      && (!st.group || e.group === st.group) && (!st.category || e.category === st.category) && (!st.use || useOf(e) === st.use));
+      && (!st.group || e.group === st.group) && (!st.category || e.category === st.category) && (!st.use || useOf(e) === st.use)
+      && (!st.receipt || (st.receipt === 'has') === !!e.receiptId));
     $('[data-list]', root).innerHTML = all('expense').length === 0 ? empty('No expenses recorded yet.') : monthGroups(list, e => {
       const p = expenseParts(e, s.km.pct);
       return row({
@@ -396,7 +200,7 @@ export function expenses(root) {
         title: `${esc(e.vendor || e.category)} ${e.use === 'personal' ? tag('Personal') : ''}${e.use === 'mixed' ? tag(`${e.businessPct}% business`) : ''}${e.receiptId ? `<span class="tag link-tag" data-act="receipt" data-id="${e.receiptId}">Receipt</span>` : ''}`,
         sub: `${fmtDate(e.date)} &middot; ${e.group === 'vehicle' ? 'Vehicle: ' : ''}${esc(e.category)}`,
         right: amountOf(e),
-        rightSub: p.cad == null ? '<span class="warn-text">no rate recorded</span>' : e.use === 'personal' ? '' : `est. ${money(p.est)}`,
+        rightSub: p.cad == null ? '<span class="warn-text">no rate recorded</span>' : e.use === 'personal' ? '' : `${p.portion !== p.cad ? `business ${money(p.portion)} &middot; ` : ''}deductible est. ${money(p.est)}`,
       });
     }, rows => `${money(sum(rows, e => expenseParts(e, s.km.pct).est))} est. deductible`);
   };
@@ -565,20 +369,38 @@ export function month(root, key) {
 
 // ---- "More" menu (phone) ---------------------------------------------------
 
-export function more(root) {
-  const items = [
+// Every section of the app, grouped. Used by the phone "More" screen and the desktop sidebar.
+export const SECTIONS = [
+  ['Records', [
+    ['income', 'Income', 'Commissions and payments received'],
+    ['expenses', 'Expenses', 'Every expense, with receipts'],
+    ['trips', 'Mileage', 'Trips, odometers and business-use %'],
+    ['cca', 'Assets & CCA', 'Equipment, vehicles and the CCA schedule'],
+    ['homeoffice', 'Home office', 'Business-use-of-home calculator'],
+    ['phone', 'Phone & internet', 'Business share of monthly services'],
+    ['gst', 'GST/HST', 'Registration, collected, input tax credits'],
+  ]],
+  ['Sales', [
     ['customers', 'Customers', 'Businesses you work with and what each has paid'],
     ['installations', 'Installations', 'Installs with linked payment and travel'],
     ['recurring', 'Recurring income', 'Expected monthly commissions to confirm'],
     ['months', 'Monthly payouts', 'Month-by-month income and expenses'],
-    ['assets', 'Vehicle assets & CCA', 'Vehicle purchases, CCA, cost forecast and "Can I deduct this?"'],
-    ['equipment', 'Equipment & technology', 'Computers, electronics, software, subscriptions and their tax treatment'],
-    ['tax', 'Tax estimate', 'Estimated amount to set aside'],
-    ['review', 'Year-end review', 'Summary and expenses to discuss with your accountant'],
-    ['cra', 'CRA / Tax filing', 'Prepare the tax package for certified software or your accountant'],
-    ['reference', 'Could I write this off?', 'Potential business expenses and what to keep'],
-    ['export', 'Export & backup', 'CSV and PDF for your accountant, backup and restore'],
-    ['settings', 'Settings', 'Tax year, province, vehicle, app lock, theme'],
-  ];
-  root.innerHTML = `${head('More')}<div class="menu">${items.map(([r, t, d]) => `<a class="row" href="#/${r}"><span class="row-main"><span class="row-title">${t}</span><span class="row-sub">${d}</span></span><span class="row-amt">&rsaquo;</span></a>`).join('')}</div>`;
+  ]],
+  ['Tax', [
+    ['deduct', 'Can I deduct this?', 'Guided check with sources'],
+    ['reminders', 'Reminders', 'Missing records and upcoming dates'],
+    ['tax', 'Tax estimate', 'Estimated tax, marginal and average rates'],
+    ['review', 'Year-end', 'Checklist and items to discuss'],
+    ['cra', 'Tax filing package', 'Organised figures for software or an accountant'],
+    ['export', 'Export & backup', 'CSV, Excel, PDF, backup and restore'],
+  ]],
+  ['Learn', [
+    ['learn', 'Knowledge centre', 'Canadian tax concepts in plain language'],
+    ['updates', 'Tax rule updates', 'New, changed, proposed and expired rules'],
+  ]],
+  ['', [['settings', 'Settings', 'Profile, province, vehicles, app lock, theme']]],
+];
+
+export function more(root) {
+  root.innerHTML = `${head('More')}${SECTIONS.map(([title, items]) => `${title ? `<h2 class="section-title">${title}</h2>` : ''}<div class="menu">${items.map(([r, t, d]) => `<a class="row" href="#/${r}"><span class="row-main"><span class="row-title">${t}</span><span class="row-sub">${d}</span></span><span class="row-amt">&rsaquo;</span></a>`).join('')}</div>`).join('')}`;
 }
