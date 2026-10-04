@@ -128,6 +128,14 @@ const expActions = { 'confirm-exp': id => expectedAction('confirm-exp', id), 'sk
 
 // ---- dashboard -------------------------------------------------------------
 
+// Small line icons for the dashboard actions (inherit the button's text colour).
+const icon = d => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const ICONS = {
+  camera: icon('<path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>'),
+  plus: icon('<path d="M12 5v14M5 12h14"/>'),
+  car: icon('<path d="M5 16V11l2-5h10l2 5v5"/><path d="M3 16h18"/><circle cx="7.5" cy="17.5" r="1.5"/><circle cx="16.5" cy="17.5" r="1.5"/>'),
+};
+
 export function home(root) {
   const s = summary(Y());
   const t = s.tax;
@@ -172,6 +180,7 @@ export function home(root) {
 
   root.innerHTML = `
     <div class="page-head"><div><h1>Tax year ${Y()}</h1><p class="muted">Estimates only &mdash; not a tax filing.</p></div></div>
+    <div class="dash-top">
     <section class="panel dash-hero">
       <span class="stat-label">Total potential deductions</span>
       <span class="hero-value">${money(deductions)}</span>
@@ -181,11 +190,12 @@ export function home(root) {
       </div>
     </section>
     <div class="dash-actions">
-      <button class="quick-btn" data-act="scan">&#128247; Scan Receipt</button>
-      <button class="quick-btn alt" data-act="add-expense">+ Add Expense</button>
+      <button class="quick-btn" data-act="scan">${ICONS.camera}<span>Scan Receipt</span></button>
+      <button class="quick-btn alt" data-act="add-expense">${ICONS.plus}<span>Add Expense</span></button>
+    </div>
     </div>
     <div class="dash-more">
-      <button class="btn small" data-act="${activeTrip() ? 'stop-trip' : 'start-trip'}">${activeTrip() ? 'Stop trip' : '&#128663; Start trip'}</button>
+      <button class="btn small" data-act="${activeTrip() ? 'stop-trip' : 'start-trip'}">${ICONS.car}${activeTrip() ? 'Stop trip' : 'Start trip'}</button>
       <button class="btn small" data-act="add-trip">+ Mileage</button>
       <button class="btn small" data-act="add-income">+ Income</button>
       <button class="btn small" data-act="add-equip">+ Asset</button>
@@ -208,9 +218,9 @@ export function home(root) {
       <section class="panel">
         <h2>Recent expenses <a class="link" href="#/expenses">View all &rarr;</a></h2>
         ${recent.length ? recent.map(e => `<button class="row" data-act="edit-expense" data-id="${e.id}">
-          <span class="datebox">${fmtDate(e.date).split(',')[0].toUpperCase()}</span>
+          <span class="datebox"><b>${fmtDate(e.date).split(',')[0].split(' ')[0].toUpperCase()}</b>${Number(e.date.slice(8, 10))}</span>
           <span class="row-main"><span class="row-title">${esc(e.vendor || e.category)}${queued.has(e.id) ? ' <span class="tag warn">Review</span>' : e.use === 'personal' ? ' <span class="tag">Personal</span>' : ''}</span><span class="row-sub">${e.group === 'vehicle' ? 'Vehicle / ' : ''}${esc(e.category)}</span></span>
-          <span class="row-amt"><strong>${money(e.amount, e.currency)}</strong></span></button>`).join('') : `<p class="empty">No expenses in ${Y()} yet.</p>`}
+          <span class="row-amt"><strong>${money(e.amount, e.currency)}</strong></span></button>`).join('') : `<div class="empty-state"><p><strong>No expenses in ${Y()} yet</strong></p><p class="muted">Scan a receipt or add one by hand and it will show up here.</p><div class="btn-list"><button class="btn small primary" data-act="scan">Scan receipt</button><button class="btn small" data-act="add-expense">Add expense</button></div></div>`}
       </section>
       <section class="panel">
         <h2>Receipt status</h2>
