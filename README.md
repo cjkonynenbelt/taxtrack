@@ -80,6 +80,14 @@ The 2026 table was taken from canada.ca on 2026-10-01. Quebec is not modelled; O
 - Automatic trip detection is not possible from a web app (no background location) and is not offered.
 - Each vehicle has its own trips, odometer readings and business-use %, and its expenses use its own percentage.
 
+## Receipt scanner
+
+**Scan Receipt** (dashboard and Expenses) takes or picks a photo, reads it, suggests a category and a tax-treatment status, and opens the normal expense form pre-filled for you to confirm. Scanned receipts are ordinary expense records with the original image attached.
+
+- Reading the text uses the open-source Tesseract.js library, loaded from a public CDN (jsdelivr) the first time you scan. The photo is processed in your browser and is not uploaded. Without a connection the receipt is still attached and you type the details.
+- Anything the reader could not find or was unsure of is marked "check" rather than guessed. PDF receipts are attached but not read.
+- Merchant-to-category rules and the status wording live in `js/scan.js`.
+
 ## CRA and filing
 
 The app does not file returns and never connects to the CRA or asks for CRA sign-in details. CRA accepts electronically filed personal returns only from NETFILE-certified software. **CRA / Tax filing > Prepare My Taxes** produces a package (PDF organised by T2125 section, an Excel workbook, the mileage log and CSV files) to enter into certified software or give to an accountant. `buildPackage(year)` in `js/cra.js` returns the whole package as one data object, which is where an official integration would connect if CRA ever offers one.
@@ -114,6 +122,7 @@ js/mileage.js         mileage tracker: Start/Stop trips, optional GPS, history, 
 js/equip.js           equipment rules, likely tax treatment, CCA, subscriptions <- update when rules change
 js/equipment.js       Equipment & technology screens and report
 js/cra.js             CRA / Tax filing screen and the year-end tax package
+js/scan.js            receipt scanner: OCR, category suggestions, tax-treatment status, review queue
 js/xlsx.js            small built-in Excel (.xlsx) writer
 js/reference.js       categories + expense guidance <- update when rules change
 js/forms.js           add/edit forms
@@ -130,7 +139,7 @@ dev/serve.ps1         local preview server
 
 ## Not included
 
-- Receipt OCR. Reading totals from photos needs a large third-party library or an online service; receipts are attached as photos and you type the details.
+- Reading PDF receipts automatically (photos are read; PDFs are attached only).
 - Recapture or terminal loss when a vehicle or equipment is sold, automatic trip detection, direct filing with the CRA, GST/HST tracking and filing, and anything for Quebec provincial tax.
 
 ## Disclaimer
